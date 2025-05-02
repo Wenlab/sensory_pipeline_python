@@ -43,3 +43,12 @@ def copy_tiff_using_dask(tiff_dir_name:str, output_dir_name:str, compression="no
         level=level,
         forground_threshold=forground_threshold,
     ).compute()
+
+if __name__ == "__main__":
+    copy_tiff_using_dask(
+    tiff_dir_name = tiff_dir_name,
+    output_dir_name=r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\w1",
+    compression="none",
+    level=0,
+    forground_threshold=120,
+)
