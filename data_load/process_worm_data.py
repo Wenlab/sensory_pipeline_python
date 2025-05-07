@@ -207,7 +207,7 @@ def per_worm_zscore(neuron_segments_dict, group_size=5, if_group=False):
             # 对每个deltaFoverF_0进行z-score标准化
             for i, seg in enumerate(segments):
                 # 计算当前segment的索引
-                group_idx = i // group_size
+                group_idx = i // group_size if if_group else 0
                 seg_data = np.array(seg['deltaFoverF_0'])
 
                 # 获取对应组的均值和标准差
