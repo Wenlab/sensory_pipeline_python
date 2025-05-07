@@ -1,2 +1,7 @@
 # data
 /data
+
+# Ignore Python compiled files
+*.pyc
+*.pyo
+__pycache__/
