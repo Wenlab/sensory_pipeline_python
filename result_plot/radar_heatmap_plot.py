@@ -155,17 +155,19 @@ def extract_peak_responses(neuron_segments_dict):
                 # Define stimulus period (starts at index 30 and lasts 50 frames)
                 stim_start = 30
                 stim_end = stim_start + 50
+                buffer_end = stim_end + 120
                 
                 # Extract the stimulus period
                 stim_period = time_series[stim_start:stim_end]
+                cal_period = time_series[stim_start:buffer_end]
                 
                 # # Calculate maximum absolute response
                 # max_abs_response = np.max(np.abs(stim_period))
                 # max_responses.append(max_abs_response)
 
                 # Calculate maximum response (preserving sign)
-                max_postive_response = np.max(stim_period)
-                max_negative_response = np.min(stim_period)
+                max_postive_response = np.max(cal_period)
+                max_negative_response = np.min(cal_period)
 
                 if abs(max_postive_response) > abs(max_negative_response):
                     peak_response = max_postive_response
