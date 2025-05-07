@@ -38,7 +38,9 @@ def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_po
         # 计算deltaF/F0
         delta_f = (raw_signal - safe_baseline) / safe_baseline
         delta_F_over_F0.iloc[roi_idx] = delta_f
+        delta_F_over_F0.iloc[roi_idx] = delta_f.astype(np.float32)
     
+    delta_F_over_F0 = delta_F_over_F0.astype(np.float32)
     # 收集质量信息
     quality_info = {
         'r2_scores': r2_scores,
