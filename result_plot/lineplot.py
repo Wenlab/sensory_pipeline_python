@@ -133,7 +133,8 @@ def plot_neurons_to_pdf(neuron_segments_dict, odor_information, output_file,
                                     
                                     # Plot mean response
                                     color = stimulus_colors.get(stim, 'gray')
-                                    ax.plot(t, mean_response, label=stim, color=color, linewidth=1.5)
+                                    stim_info = odor_information.get(stim, stim)
+                                    ax.plot(t, mean_response, label=stim_info, color=color, linewidth=1.5)
                                     
                                     # Plot error bars (SEM)
                                     ax.fill_between(t, mean_response - sem_response, 
