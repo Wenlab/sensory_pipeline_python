@@ -140,7 +140,7 @@ def extract_peak_responses(neuron_segments_dict):
     stimulus_types = sorted(list(stimulus_types))
     
     # Create a pandas DataFrame to store the max responses
-    response_df = pd.DataFrame(index=neurons, columns=stimulus_types)
+    response_df = pd.DataFrame(index=neurons, columns=stimulus_types,dtype=np.float32)
     
     # For each neuron and stimulus type, calculate the maximum response
     for neuron, stim_data in neuron_segments_dict.items():
@@ -664,5 +664,5 @@ if __name__ == "__main__":
     }
     
     output_folder = "./visualization_output"
-    compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder, if_combine=True, interactive=True)
+    # compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder, if_combine=True, interactive=True)
     heatmap_plot(neuron_segments_dict, odor_information, output_folder, if_combine=True)
