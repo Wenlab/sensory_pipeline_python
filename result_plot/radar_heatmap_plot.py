@@ -12,7 +12,7 @@ from scipy.spatial.distance import pdist
 import plotly.graph_objects as go
 
 #%%
-def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder="./visualization_output",  if_combine=False, interactive=False):
+def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder="./visualization_output",  if_combine=False, interactive=False, if_normalizatioin = False):
     """
     Create radar charts to compare:
     1. Responses to different compounds
@@ -26,7 +26,7 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
     interactive (bool): If True, also create interactive HTML plots using Plotly
 
     Returns:
-    tuple: (radar_fig_compounds, radar_figs_dilutions)
+    tuple: (radar_fig_compounds, radar_figs_dilutions, interactive if you choose)
     """
     # Create output folder if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
@@ -67,9 +67,16 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
         compound_types, 
         os.path.join(output_folder, 'compound_comparison.svg')
     )
+    if if_normalizatioin:
+        radar_fig_compounds_nor = compare_compounds_with_local_normalization(
+            response_data_abs,
+            compound_types,
+            os.path.join(output_folder, 'compound_comparison_normalized.svg')
+        )
     
     # Step 4: Create dilution comparison radar charts (one for each compound)
     radar_figs_dilutions = {}
+    radar_figs_dilutions_nor = {}
     interactive_figs = {'compounds': None, 'dilutions': {}}
     for compound_code, compound_name in compound_types.items():
         radar_figs_dilutions[compound_code] = compare_dilutions(
@@ -79,6 +86,15 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
             odor_information,
             os.path.join(output_folder, f'{compound_name}_dilution_comparison.svg')
         )
+        
+        if if_normalizatioin:
+            radar_figs_dilutions_nor[compound_code] = compare_dilutions_with_local_normalization(
+                response_data_abs,
+                compound_code,
+                compound_name,
+                odor_information,
+                os.path.join(output_folder, f'{compound_name}_dilution_comparison_normalized.svg')
+            )
     # Create interactive plots if requested
     if interactive:
         # For compound comparison
@@ -583,6 +599,102 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
         plt.close()
     
     return compound_responses
+
+def normalize_response_data(response_df):
+    normalized_df = response_df.copy()
+    for neuron in normalized_df.index:
+        max_abs_response = normalized_df.loc[neuron].abs().max()
+        if max_abs_response > 0:
+            normalized_df.loc[neuron] = normalized_df.loc[neuron] / max_abs_response
+        else:
+            normalized_df.loc[neuron] = 0
+    return normalized_df
+
+# For compound comparison with normalization
+def compare_compounds_with_local_normalization(response_df, compound_types, output_path):
+    # Filter for compounds first
+    compound_responses = pd.DataFrame(index=response_df.index)
+    for compound_code, compound_name in compound_types.items():
+        compound_columns = [col for col in response_df.columns if col.startswith(compound_code)]
+        if compound_columns:
+            compound_responses[compound_name] = response_df[compound_columns].mean(axis=1)
+    
+    # Now normalize just this filtered data
+    normalized_compound_responses = normalize_response_data(compound_responses)
+    
+    # Create radar chart with normalized data
+    fig = create_radar_chart(normalized_compound_responses, title="Neuronal Responses to Different Compounds", output_path=output_path)
+    return fig
+
+def compare_dilutions_with_local_normalization(response_df, compound_code, compound_name, odor_information, output_path):
+    """
+    Create a radar chart comparing different dilutions of the same compound
+    with normalization applied locally to just this compound's dilutions.
+    
+    Parameters:
+    -----------
+    response_df : pd.DataFrame
+        DataFrame with neurons as index and stimuli as columns
+    compound_code : str
+        Code for the compound (e.g., 'c1', 'c3')
+    compound_name : str
+        Name of the compound (e.g., 'EGCG', 'TF')
+    odor_information : dict
+        Dictionary mapping stimulus codes to descriptions
+    output_path : str
+        Path to save the output visualization
+        
+    Returns:
+    --------
+    matplotlib.figure.Figure
+        The generated radar chart
+    """
+    # Find all stimuli for this compound
+    dilution_columns = [col for col in response_df.columns if col.startswith(compound_code)]
+    
+    if not dilution_columns:
+        print(f"No data found for compound {compound_name}")
+        return None
+    
+    # Step 1: Create a DataFrame with just the dilution columns for this compound
+    dilution_responses = pd.DataFrame(index=response_df.index)
+    
+    # Add each dilution as a column with the concentration in the label
+    for col in dilution_columns:
+        if col in odor_information:
+            description = odor_information[col]
+            concentration = description.split(' ', 1)[1]
+            dilution_responses[concentration] = response_df[col]
+    
+    # Remove rows with any NaN values
+    dilution_responses = dilution_responses.dropna(how='any')
+    if dilution_responses.empty:
+        print(f"No common neurons for all dilutions of {compound_name}")
+        return None
+    
+    # Step 2: Apply normalization locally to just this dilution dataset
+    # This ensures normalization is only relative to this compound's dilutions
+    normalized_dilution_responses = pd.DataFrame(index=dilution_responses.index, 
+                                               columns=dilution_responses.columns)
+    
+    for neuron in dilution_responses.index:
+        neuron_values = dilution_responses.loc[neuron]
+        max_abs_value = neuron_values.abs().max()
+        
+        if max_abs_value > 0:
+            normalized_dilution_responses.loc[neuron] = neuron_values / max_abs_value
+        else:
+            normalized_dilution_responses.loc[neuron] = 0
+    
+    # Step 3: Create radar chart with the locally normalized data
+    fig = create_radar_chart(
+        normalized_dilution_responses, 
+        title=f"Neuronal Responses to {compound_name} Dilutions",
+        output_path=output_path,
+        cluster_neurons=True  # Enable clustering for better visualization
+    )
+    
+    return fig
 
 def combine_lr_neurons(df):
     """
