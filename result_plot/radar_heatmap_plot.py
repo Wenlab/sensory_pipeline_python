@@ -644,7 +644,7 @@ def heatmap_plot(neuron_segments_dict, odor_information, output_folder, if_combi
         compound_types,
         odor_information,
         output_folder,
-        if_combine=True
+        if_combine=if_combine
     )
 
     return None
