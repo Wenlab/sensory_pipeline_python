@@ -12,7 +12,7 @@ from scipy.spatial.distance import pdist
 import plotly.graph_objects as go
 
 #%%
-def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder="./visualization_output",  if_combine=False, interactive=False, if_normalizatioin = False):
+def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, output_folder="./visualization_output",  if_combine=False, interactive=False, if_max_normalizatioin = False, if_sum_normalization = False):
     """
     Create radar charts to compare:
     1. Responses to different compounds
@@ -67,16 +67,24 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
         compound_types, 
         os.path.join(output_folder, 'compound_comparison.svg')
     )
-    if if_normalizatioin:
-        radar_fig_compounds_nor = compare_compounds_with_local_normalization(
+    if if_max_normalizatioin:
+        radar_fig_compounds_max_nor = compare_compounds_with_max_normalization(
             response_data_abs,
             compound_types,
-            os.path.join(output_folder, 'compound_comparison_normalized.svg')
+            os.path.join(output_folder, 'compound_comparison_max_normalized.svg')
+        )
+    
+    if if_sum_normalization:
+        radar_fig_compounds_sum_nor = compare_compounds_with_sum_normalization(
+            response_data_abs,
+            compound_types,
+            os.path.join(output_folder, 'compound_comparison_sum_normalized.svg')
         )
     
     # Step 4: Create dilution comparison radar charts (one for each compound)
     radar_figs_dilutions = {}
-    radar_figs_dilutions_nor = {}
+    radar_figs_dilutions_max_nor = {}
+    radar_figs_dilutions_sum_nor = {}
     interactive_figs = {'compounds': None, 'dilutions': {}}
     for compound_code, compound_name in compound_types.items():
         radar_figs_dilutions[compound_code] = compare_dilutions(
@@ -87,14 +95,24 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
             os.path.join(output_folder, f'{compound_name}_dilution_comparison.svg')
         )
         
-        if if_normalizatioin:
-            radar_figs_dilutions_nor[compound_code] = compare_dilutions_with_local_normalization(
+        if if_max_normalizatioin:
+            radar_figs_dilutions_max_nor[compound_code] = compare_dilutions_with_max_normalization(
                 response_data_abs,
                 compound_code,
                 compound_name,
                 odor_information,
-                os.path.join(output_folder, f'{compound_name}_dilution_comparison_normalized.svg')
+                os.path.join(output_folder, f'{compound_name}_dilution_comparison_max_normalized.svg')
             )
+
+        if if_sum_normalization:
+            radar_figs_dilutions_sum_nor[compound_code] = compare_dilutions_with_sum_normalization(
+                response_data_abs,
+                compound_code,
+                compound_name,
+                odor_information,
+                os.path.join(output_folder, f'{compound_name}_dilution_comparison_sum_normalized.svg')
+            )
+            
     # Create interactive plots if requested
     if interactive:
         # For compound comparison
@@ -600,7 +618,7 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
     
     return compound_responses
 
-def normalize_response_data(response_df):
+def max_normalize_response_data(response_df):
     normalized_df = response_df.copy()
     for neuron in normalized_df.index:
         max_abs_response = normalized_df.loc[neuron].abs().max()
@@ -611,7 +629,7 @@ def normalize_response_data(response_df):
     return normalized_df
 
 # For compound comparison with normalization
-def compare_compounds_with_local_normalization(response_df, compound_types, output_path):
+def compare_compounds_with_max_normalization(response_df, compound_types, output_path):
     # Filter for compounds first
     compound_responses = pd.DataFrame(index=response_df.index)
     for compound_code, compound_name in compound_types.items():
@@ -620,13 +638,62 @@ def compare_compounds_with_local_normalization(response_df, compound_types, outp
             compound_responses[compound_name] = response_df[compound_columns].mean(axis=1)
     
     # Now normalize just this filtered data
-    normalized_compound_responses = normalize_response_data(compound_responses)
+    normalized_compound_responses = max_normalize_response_data(compound_responses)
     
     # Create radar chart with normalized data
     fig = create_radar_chart(normalized_compound_responses, title="Neuronal Responses to Different Compounds", output_path=output_path)
     return fig
 
-def compare_dilutions_with_local_normalization(response_df, compound_code, compound_name, odor_information, output_path):
+def compare_compounds_with_sum_normalization(response_df, compound_types, output_path):
+    """
+    Create a radar chart comparing different compounds with normalization based on 
+    the sum of responses across all neurons for each compound.
+    
+    Parameters:
+    -----------
+    response_df : pd.DataFrame
+        DataFrame with neurons as index and stimuli as columns
+    compound_types : dict
+        Dictionary mapping compound codes to compound names
+    output_path : str
+        Path to save the output visualization
+    """
+    compound_responses = pd.DataFrame(index=response_df.index)
+    for compound_code, compound_name in compound_types.items():
+        compound_columns = [col for col in response_df.columns if col.startswith(compound_code)]
+        if compound_columns:
+            compound_responses[compound_name] = response_df[compound_columns].mean(axis=1)
+
+    compound_responses = compound_responses.dropna(how='any')
+    if compound_responses.empty:
+        print("No common neurons across all compounds")
+        return None
+    
+    # Perform sum normalization for each compound
+    normalized_responses = pd.DataFrame(index=compound_responses.index, columns=compound_responses.columns)
+
+    for compound in compound_responses.columns:
+        # Get the sum of responses for this compound across all neurons
+        sum_response = compound_responses[compound].sum()
+        
+        if sum_response > 0:
+            # Normalize by dividing each neuron's response by the sum
+            normalized_responses[compound] = compound_responses[compound] / sum_response
+        else:
+            # If sum is zero, set all to zero
+            normalized_responses[compound] = 0
+
+    # Create radar chart
+    fig = create_radar_chart(
+        normalized_responses, 
+        title="Neuronal Responses to Different Compounds (Sum Normalized)",
+        output_path=output_path,
+        cluster_neurons=True
+    )
+
+    return fig
+
+def compare_dilutions_with_max_normalization(response_df, compound_code, compound_name, odor_information, output_path):
     """
     Create a radar chart comparing different dilutions of the same compound
     with normalization applied locally to just this compound's dilutions.
@@ -692,6 +759,59 @@ def compare_dilutions_with_local_normalization(response_df, compound_code, compo
         title=f"Neuronal Responses to {compound_name} Dilutions",
         output_path=output_path,
         cluster_neurons=True  # Enable clustering for better visualization
+    )
+    
+    return fig
+
+def compare_dilutions_with_sum_normalization(response_df, compound_code, compound_name, odor_information, output_path):
+    """
+    Create a radar chart comparing different dilutions of the same compound
+    with normalization based on the sum of responses across all neurons.
+    """
+    # Find all stimuli for this compound
+    dilution_columns = [col for col in response_df.columns if col.startswith(compound_code)]
+    
+    if not dilution_columns:
+        print(f"No data found for compound {compound_name}")
+        return None
+    
+    # Create a DataFrame for the dilutions
+    dilution_responses = pd.DataFrame(index=response_df.index)
+    
+    # Add each dilution as a column with the concentration in the label
+    for col in dilution_columns:
+        if col in odor_information:
+            description = odor_information[col]
+            concentration = description.split(' ', 1)[1]
+            dilution_responses[concentration] = response_df[col]
+    
+    # Remove rows with any NaN values
+    dilution_responses = dilution_responses.dropna(how='any')
+    if dilution_responses.empty:
+        print(f"No common neurons for all dilutions of {compound_name}")
+        return None
+    
+    # Perform sum normalization for each dilution
+    normalized_dilution_responses = pd.DataFrame(index=dilution_responses.index, 
+                                              columns=dilution_responses.columns)
+    
+    for dilution in dilution_responses.columns:
+        # Get the sum of responses for this dilution across all neurons
+        sum_response = dilution_responses[dilution].sum()
+        
+        if sum_response > 0:
+            # Normalize by dividing each neuron's response by the sum
+            normalized_dilution_responses[dilution] = dilution_responses[dilution] / sum_response
+        else:
+            # Avoid division by zero
+            normalized_dilution_responses[dilution] = 0
+    
+    # Create radar chart
+    fig = create_radar_chart(
+        normalized_dilution_responses, 
+        title=f"Neuronal Responses to {compound_name} Dilutions (Sum Normalized)",
+        output_path=output_path,
+        cluster_neurons=True
     )
     
     return fig
