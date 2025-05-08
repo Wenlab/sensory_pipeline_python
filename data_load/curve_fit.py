@@ -4,7 +4,7 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_post=0):
+def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_post=0, background_noise=102):
     """
     使用改进的拟合方法计算deltaF/F0
     
@@ -36,9 +36,10 @@ def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_po
         safe_baseline = np.maximum(baseline, min_baseline * 0.1)  # 确保基线不会太接近0
         
         # 计算deltaF/F0
-        delta_f = (raw_signal - safe_baseline) / safe_baseline
-        delta_F_over_F0.iloc[roi_idx] = delta_f
-        delta_F_over_F0.iloc[roi_idx] = delta_f.astype(np.float32)
+        delta_f = (raw_signal - safe_baseline)
+        delta_f_f0 = delta_f / (safe_baseline - background_noise)
+        delta_F_over_F0.iloc[roi_idx] = delta_f_f0
+        delta_F_over_F0.iloc[roi_idx] = delta_f_f0.astype(np.float32)
     
     delta_F_over_F0 = delta_F_over_F0.astype(np.float32)
     # 收集质量信息
