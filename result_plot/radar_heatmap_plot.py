@@ -359,6 +359,7 @@ def create_radar_chart(data_df, title, output_path, cluster_neurons=True):
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     
+    plt.close()
     return fig
 
 def create_interactive_radar_chart(data_df, title, output_path, cluster_neurons=True):
@@ -535,7 +536,8 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
     plt.ylabel('Neuron', size=12)
     plt.tight_layout()
     plt.savefig(os.path.join(output_folder, 'compound_heatmap.svg'), dpi=300, bbox_inches='tight')
-    
+    plt.close()
+
     # Create dilution heatmaps for each compound
     for compound_code, compound_name in compound_types.items():
         # Find all stimuli for this compound
@@ -577,6 +579,8 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
         plt.tight_layout()
         plt.savefig(os.path.join(output_folder, f'{compound_name}_dilution_heatmap.svg'), 
                     dpi=300, bbox_inches='tight')
+        
+        plt.close()
     
     return compound_responses
 
