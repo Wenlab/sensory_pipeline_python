@@ -65,7 +65,7 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
     radar_fig_compounds = compare_compounds(
         response_data_abs, 
         compound_types, 
-        os.path.join(output_folder, 'compound_comparison.png')
+        os.path.join(output_folder, 'compound_comparison.svg')
     )
     
     # Step 4: Create dilution comparison radar charts (one for each compound)
@@ -77,7 +77,7 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
             compound_code,
             compound_name,
             odor_information,
-            os.path.join(output_folder, f'{compound_name}_dilution_comparison.png')
+            os.path.join(output_folder, f'{compound_name}_dilution_comparison.svg')
         )
     # Create interactive plots if requested
     if interactive:
@@ -351,9 +351,9 @@ def create_radar_chart(data_df, title, output_path, cluster_neurons=True):
     # Add title
     plt.title(title, size=16, y=1.1, fontweight='bold')
     
-    # Add a subtitle explaining the metric
-    plt.figtext(0.5, 0.01, 'Values represent maximum absolute response during stimulus period',
-               ha='center', fontsize=10, style='italic')
+    # # Add a subtitle explaining the metric
+    # plt.figtext(0.5, 0.01, 'Values represent maximum absolute response during stimulus period',
+    #            ha='center', fontsize=10, style='italic')
     
     # Save figure
     plt.tight_layout()
@@ -534,7 +534,7 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
     plt.xlabel('Compound', size=12)
     plt.ylabel('Neuron', size=12)
     plt.tight_layout()
-    plt.savefig(os.path.join(output_folder, 'compound_heatmap.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(output_folder, 'compound_heatmap.svg'), dpi=300, bbox_inches='tight')
     
     # Create dilution heatmaps for each compound
     for compound_code, compound_name in compound_types.items():
@@ -575,7 +575,7 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
         plt.xlabel('Concentration', size=12)
         plt.ylabel('Neuron', size=12)
         plt.tight_layout()
-        plt.savefig(os.path.join(output_folder, f'{compound_name}_dilution_heatmap.png'), 
+        plt.savefig(os.path.join(output_folder, f'{compound_name}_dilution_heatmap.svg'), 
                     dpi=300, bbox_inches='tight')
     
     return compound_responses
