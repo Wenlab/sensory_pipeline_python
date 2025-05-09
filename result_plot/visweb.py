@@ -223,8 +223,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
             rows=len(selected_neurons),
             cols=len(grouped_stimuli),
             shared_yaxes=False,  # Allow different y-ranges per neuron
-            horizontal_spacing=0.02,
-            vertical_spacing=0.05,  # Reduced spacing to maximize plot area
+            horizontal_spacing=0.00,
+            vertical_spacing=0.00,  # Reduced spacing to maximize plot area
             subplot_titles=[]  # We'll add custom titles
         )
         
