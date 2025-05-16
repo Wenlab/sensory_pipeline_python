@@ -1,0 +1,17 @@
+name: sensory
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy
+  - pandas
+  - h5py
+  - matplotlib
+  - pip:
+      - torch
+      - scikit-learn
+      - dash
+      - tqdm
+      - napari
+  
