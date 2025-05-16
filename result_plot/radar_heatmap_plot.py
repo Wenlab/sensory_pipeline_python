@@ -358,7 +358,13 @@ def create_radar_chart(data_df, title, output_path, cluster_neurons=True):
     
     # Draw the axes and add neuron labels
     ax.set_xticks(theta[:-1])
-    ax.set_xticklabels(neurons, fontsize=9)
+    ax.set_xticklabels(neurons)
+    ax.tick_params(axis='x', labelsize=18) 
+    # Adjust tick label sizes
+    ax.tick_params(axis='y', labelsize=12)  # Increased tick labels font size
+    
+    # Add dashed grid lines
+    ax.grid(True, linestyle='--', alpha=0.7)  # Dashed grid lines
     
     # Use a nice color palette
     colors = plt.cm.Dark2(np.linspace(0, 1, len(categories)))
@@ -370,24 +376,19 @@ def create_radar_chart(data_df, title, output_path, cluster_neurons=True):
         # Repeat the first value to close the loop
         values = values + [values[0]]
         
-        # Plot the category line
-        ax.plot(theta, values, 'o-', linewidth=2, color=colors[i], markersize=6)
+        # Plot the category line without markers
+        ax.plot(theta, values, '-', linewidth=2, color=colors[i])  # Removed markers
         ax.fill(theta, values, color=colors[i], alpha=0.25)
         
-        # Add to legend
-        legend_elements.append(Line2D([0], [0], color=colors[i], lw=2, marker='o', 
-                                     markersize=6, label=category))
+        # Add to legend (no markers)
+        legend_elements.append(Line2D([0], [0], color=colors[i], lw=2, label=category))
     
-    # Add legend with custom position
-    ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.2, 0.2),
-              fontsize=10, frameon=True, facecolor='white', edgecolor='gray')
+    # Add legend in upper right corner
+    ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.05, 1.05),
+              fontsize=12, frameon=True, facecolor='white', edgecolor='gray')
     
     # Add title
-    plt.title(title, size=16, y=1.1, fontweight='bold')
-    
-    # # Add a subtitle explaining the metric
-    # plt.figtext(0.5, 0.01, 'Values represent maximum absolute response during stimulus period',
-    #            ha='center', fontsize=10, style='italic')
+    plt.title(title, size=18, y=1.1, fontweight='bold')  # Increased title font size
     
     # Save figure
     plt.tight_layout()
@@ -395,6 +396,7 @@ def create_radar_chart(data_df, title, output_path, cluster_neurons=True):
     
     plt.close()
     return fig
+
 
 def create_interactive_radar_chart(data_df, title, output_path, cluster_neurons=True):
     """
