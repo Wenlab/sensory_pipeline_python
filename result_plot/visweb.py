@@ -1,3 +1,6 @@
+if __name__ == "__main__":
+    data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250428_The\neuron_segments_dict.h5"
+    info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json'
 import dash
 from dash import dcc, html, Input, Output, State, callback
 import numpy as np
@@ -9,6 +12,11 @@ import numpy as np
 from scipy import stats
 import sys
 import os
+import json
+if __name__ == "__main__":
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.HDF5_load import load_h5file
 
 #%%
 def preprocess_data_for_plotting(neuron_segments_dict):
@@ -651,3 +659,30 @@ def combine_lr_neurons(neuron_segments_dict):
             combined_dict[neuron] = neuron_segments_dict[neuron]
     
     return combined_dict
+
+def visweb(neuron_segments_dict, odor_information=None, port=8050):
+    """
+    Main function to create and run the neuron activity visualization dashboard.
+    
+    Parameters:
+    -----------
+    neuron_segments_dict : dict
+        Dictionary with structure {neuron_group: {stimulus_type: [trial data]}}
+    odor_information : dict, optional
+        Dictionary mapping stimulus codes to descriptions
+    """
+    app = create_neuronal_dashboard(neuron_segments_dict, odor_information)
+    
+    # Run the app
+    app.run(host="0.0.0.0", port= port, debug=True, jupyter_mode='external')
+
+    return app
+
+if __name__ == "__main__":
+    # Load data and odor information
+    neuron_segments_dict = load_h5file(data_path, root_name='neuron_segments_dict')
+    with open(info_path, 'r', encoding='utf-8') as f:
+        odor_information = json.load(f)
+    
+    # Start the visualization web app
+    app = visweb(neuron_segments_dict, odor_information, port=8050)  # Change port if needed
