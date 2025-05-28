@@ -14,4 +14,6 @@ dependencies:
       - dash
       - tqdm
       - napari
+      - openpyxl
+      - seaborn
   
