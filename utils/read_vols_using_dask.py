@@ -8,7 +8,9 @@ from tqdm import tqdm
 import dask.array as da
 import napari
 import tifffile
+from pathlib import Path
 
+#%%
 def _read_frame(filenames_vol,**kwargs):
     return tifffile.imread( filenames_vol[0][0] )[np.newaxis,np.newaxis,:,:]
 
@@ -107,6 +109,44 @@ def lazy_read_tiff_stack(
     )
     return images_dask
 
+def save_dask_array_as_npy(dask_array, output_path):
+    # Convert the Dask array to a NumPy array
+    numpy_array = dask_array.compute()
+    # Ensure the output directory exists
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Save the NumPy array to a .npy file
+    np.save(output_path, numpy_array)
+
+def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
+    # Get all subfolders in the directory
+    subfolders = [f for f in Path(folder_path).iterdir() if f.is_dir()]
+    
+    for subfolder in subfolders:
+        # Process each subfolder
+        # if subfolder startswith("w"):
+        if subfolder.name.startswith("w"):
+            # Process the subfolder
+            print(f"Processing {subfolder}...")
+            tiff_dir_name = os.path.join(folder_path, subfolder.name)
+            exp_path = tiff_dir_name
+            red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
+            green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
+            volume_read_params = dict(
+                z_start_frame_number=0,
+                z_end_frame_number=17,
+                mod2_reverse=[False, False],
+                img_width=1024,
+                img_height=1024,
+                frame_number_per_volume=20,
+                img_dtype=np.uint16,
+            )
+            red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
+            green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
+            save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name, "red.npy"))
+            save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name, "green.npy"))
+
+#%%
 if __name__ == "__main__":
     exp_path = tiff_dir_name
     red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
