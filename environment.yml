@@ -16,4 +16,5 @@ dependencies:
       - napari
       - openpyxl
       - seaborn
+      - opencv-python
   
