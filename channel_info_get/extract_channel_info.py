@@ -210,7 +210,7 @@ def process_folder(folder_path, output_folder_path, matadata_path, channel_meani
     print(f"All volumes have been saved to {volumes_excel_path}")
 
 
-def extract_channel_info(input_folder, output_folder, metadata_path, config_file_path):
+def extract_channel_info(input_folder, output_folder, metadata_path, config_file):
     # Load configurations
     channel_meanings, state_mappings, slice_number = load_config(config_file if config_file != "No config file selected" else None)
 
