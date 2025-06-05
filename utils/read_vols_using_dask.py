@@ -1,6 +1,6 @@
 if __name__ == "__main":
     tiff_dir_name = r"\\192.168.1.192/worm-tools/Jinghao-Wang/tea_experiment/20250421_EGCG/w1_2025-04-21_11-39-40/"
-
+    output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\w1\volumes"
 #%%
 import os
 import numpy as np
@@ -146,6 +146,152 @@ def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
             save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name, "red.npy"))
             save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name, "green.npy"))
 
+def save_volumes_with_range(
+    tiff_path_,
+    volume_read_params,
+    output_folder,
+    worm_name,
+    start_volume_number=0,
+    end_volume_number=None,
+    show_progress=True
+):
+    """
+    Save volumes in specified range with custom naming convention.
+    
+    Parameters:
+    -----------
+    tiff_path_ : str
+        Path to the tiff directory
+    volume_read_params : dict
+        Parameters for volume reading
+    output_folder : str
+        Output directory to save .npy files
+    worm_name : str
+        Name of the worm for file naming
+    start_volume_number : int, default=0
+        Starting volume number (inclusive)
+    end_volume_number : int, default=None
+        Ending volume number (inclusive). If None, process all available volumes
+    show_progress : bool, default=True
+        Whether to show progress bar
+    """
+    # Create output directory if it doesn't exist
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Extract all available volume numbers from the directory
+    all_vols = extract_volume_numbers_from_dir(tiff_path_)
+    
+    # Filter volumes based on start and end range
+    if end_volume_number is None:
+        end_volume_number = max(all_vols) if all_vols else 0
+    
+    selected_vols = [vol for vol in all_vols if start_volume_number <= vol <= end_volume_number]
+    
+    if not selected_vols:
+        print(f"No volumes found in range {start_volume_number}-{end_volume_number}")
+        return
+    
+    print(f"Processing volumes {min(selected_vols)} to {max(selected_vols)} ({len(selected_vols)} volumes)")
+    
+    # Get filenames for selected volumes
+    file_names = get_filenames_vols(
+        volume_numbers=selected_vols,
+        tiff_root_path=tiff_path_,
+        show_progress=False,  # We'll show progress in the saving loop
+        **volume_read_params,
+    )
+    
+    valid_frames_per_volume = volume_read_params["z_end_frame_number"] - volume_read_params["z_start_frame_number"] + 1
+    
+    # Create dask array
+    file_names_dask = da.from_array(file_names, chunks=(1, 1))
+    images_dask = file_names_dask.map_blocks(
+        _read_frame,
+        chunks=da.core.normalize_chunks((1, 1, 1024, 1024), (len(selected_vols), valid_frames_per_volume, 1024, 1024)),
+        new_axis=[2, 3],
+        meta=np.array((), dtype=np.uint16),
+    )
+    
+    # Save each volume individually with progress bar
+    iterable = tqdm(enumerate(selected_vols), total=len(selected_vols), desc="Saving volumes") if show_progress else enumerate(selected_vols)
+    
+    for idx, vol_num in iterable:
+        # Extract single volume from dask array
+        single_volume = images_dask[idx, :, :, :]  # Shape: (z, y, x)
+        
+        # Compute the volume (load into memory)
+        volume_data = single_volume.compute()
+        
+        # Transpose from (z, y, x) to (y, x, z)
+        volume_transposed = volume_data.transpose(1, 2, 0)
+        
+        # Create filename following the specified convention
+        filename = f"ImgStk001_dk001_{worm_name}_Dt202505_{vol_num:06d}.npy"
+        filepath = output_path / filename
+        
+        # Save the volume
+        np.save(filepath, volume_transposed)
+    
+    print(f"Successfully saved {len(selected_vols)} volumes to {output_folder}")
+
+# Example usage function
+def process_experiment_with_range(
+    exp_path,
+    output_folder,
+    worm_name,
+    start_volume=0,
+    end_volume=None,
+    camera_type="red"  # "red" or "green"
+):
+    """
+    Process a single experiment with volume range specification.
+    
+    Parameters:
+    -----------
+    exp_path : str
+        Path to experiment directory
+    output_folder : str
+        Output directory
+    worm_name : str
+        Worm name for file naming
+    start_volume : int
+        Starting volume number
+    end_volume : int or None
+        Ending volume number (None for all available)
+    camera_type : str
+        "red" or "green"
+    """
+    if camera_type == "red":
+        tiff_path_ = os.path.join(exp_path, "0_Camera-Red_VSC-10629")
+    elif camera_type == "green":
+        tiff_path_ = os.path.join(exp_path, "1_Camera-Green_VSC-09321")
+    else:
+        raise ValueError("camera_type must be 'red' or 'green'")
+    
+    volume_read_params = dict(
+        z_start_frame_number=0,
+        z_end_frame_number=17,
+        mod2_reverse=[False, False],
+        img_width=1024,
+        img_height=1024,
+        frame_number_per_volume=20,
+        img_dtype=np.uint16,
+    )
+    
+    # Create camera-specific output folder
+    camera_output_folder = os.path.join(output_folder, camera_type)
+    
+    save_volumes_with_range(
+        tiff_path_=tiff_path_,
+        volume_read_params=volume_read_params,
+        output_folder=camera_output_folder,
+        worm_name=worm_name,
+        start_volume_number=start_volume,
+        end_volume_number=end_volume,
+        show_progress=True
+    )
+
 #%%
 if __name__ == "__main__":
     exp_path = tiff_dir_name
@@ -162,3 +308,24 @@ if __name__ == "__main__":
     )
     red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
     green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
+    worm_name = "worm1"
+    
+    # Process red camera, volumes 10-50
+    process_experiment_with_range(
+        exp_path=exp_path,
+        output_folder=output_folder,
+        worm_name=worm_name,
+        start_volume=10,
+        end_volume=50,
+        camera_type="red"
+    )
+    
+    # Process green camera, volumes 10-50
+    process_experiment_with_range(
+        exp_path=exp_path,
+        output_folder=output_folder,
+        worm_name=worm_name,
+        start_volume=10,
+        end_volume=50,
+        camera_type="green"
+    )
