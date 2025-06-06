@@ -146,7 +146,7 @@ def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
             save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name, "red.npy"))
             save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name, "green.npy"))
 
-def save_volumes_with_range(
+def save_volumes_with_vol_range(
     tiff_path_,
     volume_read_params,
     output_folder,
@@ -237,7 +237,7 @@ def save_volumes_with_range(
     print(f"Successfully saved {len(selected_vols)} volumes to {output_folder}")
 
 # Example usage function
-def process_experiment_with_range(
+def process_experiment_with_vol_range(
     exp_path,
     output_folder,
     worm_name,
@@ -284,7 +284,7 @@ def process_experiment_with_range(
     # Create camera-specific output folder
     camera_output_folder = os.path.join(output_folder, camera_type)
     
-    save_volumes_with_range(
+    save_volumes_with_vol_range(
         tiff_path_=tiff_path_,
         volume_read_params=volume_read_params,
         output_folder=camera_output_folder,
@@ -292,6 +292,182 @@ def process_experiment_with_range(
         date_info=date_info,
         start_volume_number=start_volume,
         end_volume_number=end_volume,
+        show_progress=True
+    )
+
+def save_volumes_with_tiff_range(
+    tiff_path_,
+    volume_read_params,
+    output_folder,
+    worm_name,
+    date_info,
+    start_tiff_number=0,
+    end_tiff_number=None,
+    show_progress=True
+):
+    """
+    Save volumes in specified tiff file range with custom naming convention.
+    
+    Parameters:
+    -----------
+    tiff_path_ : str
+        Path to the tiff directory
+    volume_read_params : dict
+        Parameters for volume reading
+    output_folder : str
+        Output directory to save .npy files
+    worm_name : str
+        Name of the worm for file naming
+    date_info : str
+        Date information for file naming
+    start_tiff_number : int, default=0
+        Starting tiff file number (inclusive)
+    end_tiff_number : int, default=None
+        Ending tiff file number (inclusive). If None, process all available tiffs
+    show_progress : bool, default=True
+        Whether to show progress bar
+    """
+    # Create output directory if it doesn't exist
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Get frame_number_per_volume from volume_read_params
+    frame_number_per_volume = volume_read_params["frame_number_per_volume"]
+    
+    # Calculate which volumes contain the specified tiff range
+    start_volume = start_tiff_number // frame_number_per_volume
+    if end_tiff_number is None:
+        # Get all available volumes and find the maximum tiff number
+        all_vols = extract_volume_numbers_from_dir(tiff_path_)
+        if not all_vols:
+            print("No volumes found in directory")
+            return
+        max_volume = max(all_vols)
+        end_tiff_number = (max_volume + 1) * frame_number_per_volume - 1
+    
+    end_volume = end_tiff_number // frame_number_per_volume
+    
+    # Get all volumes that might contain tiffs in our range
+    all_vols = extract_volume_numbers_from_dir(tiff_path_)
+    selected_vols = [vol for vol in all_vols if start_volume <= vol <= end_volume]
+    
+    if not selected_vols:
+        print(f"No volumes found for tiff range {start_tiff_number}-{end_tiff_number}")
+        return
+    
+    print(f"Processing tiff files {start_tiff_number} to {end_tiff_number}")
+    print(f"This spans volumes {min(selected_vols)} to {max(selected_vols)} ({len(selected_vols)} volumes)")
+    
+    # Get filenames for selected volumes
+    file_names = get_filenames_vols(
+        volume_numbers=selected_vols,
+        tiff_root_path=tiff_path_,
+        show_progress=False,
+        **volume_read_params,
+    )
+    
+    valid_frames_per_volume = volume_read_params["z_end_frame_number"] - volume_read_params["z_start_frame_number"] + 1
+    
+    # Create dask array
+    file_names_dask = da.from_array(file_names, chunks=(1, 1))
+    images_dask = file_names_dask.map_blocks(
+        _read_frame,
+        chunks=da.core.normalize_chunks((1, 1, 1024, 1024), (len(selected_vols), valid_frames_per_volume, 1024, 1024)),
+        new_axis=[2, 3],
+        meta=np.array((), dtype=np.uint16),
+    )
+    
+    # Filter volumes based on actual tiff numbers they contain
+    volumes_to_save = []
+    for idx, vol_num in enumerate(selected_vols):
+        # Calculate the tiff range for this volume
+        vol_start_tiff = vol_num * frame_number_per_volume + volume_read_params["z_start_frame_number"]
+        vol_end_tiff = vol_num * frame_number_per_volume + volume_read_params["z_end_frame_number"]
+        
+        # Check if this volume's tiff range overlaps with our desired range
+        if not (vol_end_tiff < start_tiff_number or vol_start_tiff > end_tiff_number):
+            volumes_to_save.append((idx, vol_num))
+    
+    # Save volumes with progress bar
+    iterable = tqdm(volumes_to_save, desc="Saving volumes") if show_progress else volumes_to_save
+    
+    for idx, vol_num in iterable:
+        # Extract single volume from dask array
+        single_volume = images_dask[idx, :, :, :]  # Shape: (z, y, x)
+        
+        # Compute the volume (load into memory)
+        volume_data = single_volume.compute()
+        
+        # Transpose from (z, y, x) to (y, x, z)
+        volume_transposed = volume_data.transpose(1, 2, 0)
+        
+        # Create filename following the specified convention
+        filename = f"ImgStk001_dk001_{worm_name}_Dt{date_info}_{vol_num:06d}.npy"
+        filepath = output_path / filename
+        
+        # Save the volume
+        np.save(filepath, volume_transposed)
+    
+    print(f"Successfully saved {len(volumes_to_save)} volumes to {output_folder}")
+
+# Updated wrapper function
+def process_experiment_with_tiff_range(
+    exp_path,
+    output_folder,
+    worm_name,
+    date_info,
+    start_tiff_number=0,
+    end_tiff_number=None,
+    camera_type="red"  # "red" or "green"
+):
+    """
+    Process a single experiment with tiff file range specification.
+    
+    Parameters:
+    -----------
+    exp_path : str
+        Path to experiment directory
+    output_folder : str
+        Output directory
+    worm_name : str
+        Worm name for file naming
+    date_info : str
+        Date information for file naming
+    start_tiff_number : int
+        Starting tiff file number
+    end_tiff_number : int or None
+        Ending tiff file number (None for all available)
+    camera_type : str
+        "red" or "green"
+    """
+    if camera_type == "red":
+        tiff_path_ = os.path.join(exp_path, "0_Camera-Red_VSC-10629")
+    elif camera_type == "green":
+        tiff_path_ = os.path.join(exp_path, "1_Camera-Green_VSC-09321")
+    else:
+        raise ValueError("camera_type must be 'red' or 'green'")
+    
+    volume_read_params = dict(
+        z_start_frame_number=0,
+        z_end_frame_number=17,
+        mod2_reverse=[False, False],
+        img_width=1024,
+        img_height=1024,
+        frame_number_per_volume=20,
+        img_dtype=np.uint16,
+    )
+    
+    # Create camera-specific output folder
+    camera_output_folder = os.path.join(output_folder, camera_type)
+    
+    save_volumes_with_tiff_range(
+        tiff_path_=tiff_path_,
+        volume_read_params=volume_read_params,
+        output_folder=camera_output_folder,
+        worm_name=worm_name,
+        date_info=date_info,
+        start_tiff_number=start_tiff_number,
+        end_tiff_number=end_tiff_number,
         show_progress=True
     )
 
@@ -314,7 +490,7 @@ if __name__ == "__main__":
     worm_name = "worm1"
     date_info = "202504"
     # Process red camera, volumes 10-50
-    process_experiment_with_range(
+    process_experiment_with_vol_range(
         exp_path=exp_path,
         output_folder=output_folder,
         worm_name=worm_name,
@@ -325,12 +501,22 @@ if __name__ == "__main__":
     )
     
     # Process green camera, volumes 10-50
-    process_experiment_with_range(
+    process_experiment_with_vol_range(
         exp_path=exp_path,
         output_folder=output_folder,
         worm_name=worm_name,
         date_info=date_info,
         start_volume=10,
         end_volume=50,
+        camera_type="green"
+    )
+
+    process_experiment_with_tiff_range(
+        exp_path=exp_path,
+        output_folder=output_folder,
+        worm_name=worm_name,
+        date_info=date_info,
+        start_tiff_number=200,
+        end_tiff_number=1000,
         camera_type="green"
     )
