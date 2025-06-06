@@ -1,8 +1,8 @@
 if __name__ == "__main__":
-    h5_file_folder = r"H:\Process_temporary\WJH\olfactory\Code\back_up\Labjack_channel_info_extraction\data"
+    h5_file_folder = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\test"
     config_file = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\config.json"
-    output_folder = r"H:\Process_temporary\WJH\olfactory\Code\back_up\Labjack_channel_info_extraction\labjack"
-    metadata_path = r"H:\Process_temporary\WJH\olfactory\Code\back_up\Labjack_channel_info_extraction\metadata.csv"
+    output_folder = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\test"
+    metadata_path = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\backup\metadata.csv"
 
 #%%
 import os
@@ -42,8 +42,6 @@ def load_config(config_path):
         "[0,1,1,0,0,0,1,0]": "Odor4",
         "[0,1,1,0,0,0,0,1]": "Odor5"
     }
-
-    default_slice_number = 20
 
     default_slice_number = 20
 
@@ -109,22 +107,39 @@ def process_hdf5(file_path, state_mappings, slice_number = 20):
         states.append(current_state)
         start_counters.append(current_start)
         end_counters.append(prev_counter)
-    adjust_frame = end_counters[0]
-    start_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in start_counters]
-    end_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in end_counters]
 
-    if states[-1] == 'All Off':
-        states = states[1:-1]
-        start_counters = start_counters[1:-1]
-        end_counters = end_counters[1:-1]
-        start_volumes = start_volumes[1:-1]
-        end_volumes = end_volumes[1:-1]
+    if states[0] != 'Buffer':
+        adjust_frame = end_counters[0]
+        start_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in start_counters]
+        end_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in end_counters]
+        if states[-1] == 'All Off':
+            states = states[1:-1]
+            start_counters = start_counters[1:-1]
+            end_counters = end_counters[1:-1]
+            start_volumes = start_volumes[1:-1]
+            end_volumes = end_volumes[1:-1]
+        else:
+            states = states[1:]
+            start_counters = start_counters[1:]
+            end_counters = end_counters[1:]
+            start_volumes = start_volumes[1:]
+            end_volumes = end_volumes[1:]
     else:
-        states = states[1:]
-        start_counters = start_counters[1:]
-        end_counters = end_counters[1:]
-        start_volumes = start_volumes[1:]
-        end_volumes = end_volumes[1:]
+        adjust_frame = start_counters[0]
+        start_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in start_counters]
+        end_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in end_counters]
+        if states[-1] == 'All Off':
+            states = states[:-1]
+            start_counters = start_counters[:-1]
+            end_counters = end_counters[:-1]
+            start_volumes = start_volumes[:-1]
+            end_volumes = end_volumes[:-1]
+        else:
+            states = states
+            start_counters = start_counters
+            end_counters = end_counters
+            start_volumes = start_volumes
+            end_volumes = end_volumes
     result_df = pd.DataFrame({
         'state': states,
         'start': start_counters,
