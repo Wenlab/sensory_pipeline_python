@@ -458,7 +458,7 @@ def process_experiment_with_tiff_range(
     )
     
     # Create camera-specific output folder
-    camera_output_folder = os.path.join(output_folder, camera_type)
+    camera_output_folder = os.path.join(output_folder, 'volume', f"ImgStk001_dk001_{worm_name}_Dt{date_info}")
     
     save_volumes_with_tiff_range(
         tiff_path_=tiff_path_,
