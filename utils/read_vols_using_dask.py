@@ -151,6 +151,7 @@ def save_volumes_with_range(
     volume_read_params,
     output_folder,
     worm_name,
+    date_info,
     start_volume_number=0,
     end_volume_number=None,
     show_progress=True
@@ -227,7 +228,7 @@ def save_volumes_with_range(
         volume_transposed = volume_data.transpose(1, 2, 0)
         
         # Create filename following the specified convention
-        filename = f"ImgStk001_dk001_{worm_name}_Dt202505_{vol_num:06d}.npy"
+        filename = f"ImgStk001_dk001_{worm_name}_Dt{date_info}_{vol_num:06d}.npy"
         filepath = output_path / filename
         
         # Save the volume
@@ -240,6 +241,7 @@ def process_experiment_with_range(
     exp_path,
     output_folder,
     worm_name,
+    date_info,
     start_volume=0,
     end_volume=None,
     camera_type="red"  # "red" or "green"
@@ -287,6 +289,7 @@ def process_experiment_with_range(
         volume_read_params=volume_read_params,
         output_folder=camera_output_folder,
         worm_name=worm_name,
+        date_info=date_info,
         start_volume_number=start_volume,
         end_volume_number=end_volume,
         show_progress=True
@@ -309,12 +312,13 @@ if __name__ == "__main__":
     red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
     green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
     worm_name = "worm1"
-    
+    date_info = "202504"
     # Process red camera, volumes 10-50
     process_experiment_with_range(
         exp_path=exp_path,
         output_folder=output_folder,
         worm_name=worm_name,
+        date_info=date_info,
         start_volume=10,
         end_volume=50,
         camera_type="red"
@@ -325,6 +329,7 @@ if __name__ == "__main__":
         exp_path=exp_path,
         output_folder=output_folder,
         worm_name=worm_name,
+        date_info=date_info,
         start_volume=10,
         end_volume=50,
         camera_type="green"
