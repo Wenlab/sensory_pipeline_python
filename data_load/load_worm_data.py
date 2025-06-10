@@ -1,5 +1,5 @@
 if __name__ == '__main__':
-    folder_path = r"G:\LAB\DATA\result\20250421_EGCG"
+    folder_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250421_EGCG"
 #%%
 import sys
 import os
@@ -26,7 +26,7 @@ def load_worm_ID(file_path):
         worm[sheet] = xls.parse(sheet)
     return worm
 
-def process_worm_data(
+def load_worm_data_dict(
     key, f, experiment_df,
     worm, stimulus_lists, 
     stimulus_sort=None, buffer_sort=None, 
@@ -43,7 +43,7 @@ def process_worm_data(
     modified_ID_df = pd.DataFrame(modified_ID)
     
     stimulus_intervals, buffer_intervals = extract_intervals(experiment_df, key)
-    intensity = pd.DataFrame(f[key]['intensity'][:])
+    intensity = pd.DataFrame(f[key]['intensity'][:])# this conversion is useless but Fit function is based on dataframe(which is our old data's form)
     # print(f"Processing {key}...")
     # print(f"intensity_dtype: {intensity.dtypes}")
     # fit curve
@@ -115,6 +115,52 @@ def process_worm_data(
             'stimulus_list': stimulus_list
         }
 
+def load_worm_data(
+    h5_file_path, experiment_info, worm_id, 
+    stimulus_lists, sorting_config=None, exclude_key=None
+):
+    """
+    Load worm data from HDF5 file and process it.
+    
+    Parameters:
+        folder_path (str): Path to the folder containing the HDF5 file.
+        experiment_info (pd.DataFrame): DataFrame containing experiment information.
+        worm_id (dict): Dictionary containing worm IDs (dataframe).
+        stimulus_lists: a dictionary containing each worm's stimulus list.
+        sorting_config: dict, optional
+            {
+                'worm_key': {
+                    'stimulus_sort': [0, 1, 2, ...],
+                    'buffer_sort': [0, 1, 2, ...]
+                }
+            }
+        exclude_key (list, optional): List of keys to exclude from processing.
+    Returns:
+        dict: Processed worm data dictionary.
+    """
+    worm_data = {}
+    h5_file_path = os.path.join(h5_file_path)
+    with h5py.File(h5_file_path, 'r') as f:
+        for key in f.keys():
+            if exclude_key and key in exclude_key:
+                continue
+            # 检查是否需要排序
+            if sorting_config and key in sorting_config:
+                sort_params = sorting_config[key]
+                worm_data[key] = load_worm_data_dict(
+                        key, f, experiment_info, worm_id, stimulus_lists,
+                        stimulus_sort=sort_params.get('stimulus_sort'),
+                        buffer_sort=sort_params.get('buffer_sort'),
+                        need_sorting=True
+                    )
+            else:
+                # 不需要排序的情况
+                worm_data[key] = load_worm_data_dict(
+                    key, f, experiment_info, worm_id, stimulus_lists
+                )
+    
+    return worm_data
+
 #%%
 if __name__ == '__main__':
     info_excel = os.path.join(folder_path, 'output_volumes.xlsx')
@@ -134,7 +180,7 @@ if __name__ == '__main__':
     with h5py.File(folder_path + r'\20250421_EGCG.h5', 'r') as f:
         for key in f.keys():
             if key == 'w2' or key == 'w3':
-                worm_data_0421_EGCG[key] = process_worm_data(
+                worm_data_0421_EGCG[key] = load_worm_data_dict(
                     key, f, experiment_info, ID_0421_EGCG, 
                     stimulus_lists=stimulus_lists_0421_EGCG
                 )
