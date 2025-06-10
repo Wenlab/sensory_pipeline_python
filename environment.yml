@@ -4,10 +4,6 @@ channels:
   - defaults
 dependencies:
   - python=3.9
-  - numpy
-  - pandas
-  - h5py
-  - matplotlib
   - pip:
       - torch
       - scikit-learn
@@ -17,4 +13,13 @@ dependencies:
       - openpyxl
       - seaborn
       - opencv-python
+      - numpy
+      - matplotlib
+      - scikit-image
+      - scikit-learn
+      - imageio
+      - pandas
+      - plotly
+      - napari[all]
+      - h5py
   
