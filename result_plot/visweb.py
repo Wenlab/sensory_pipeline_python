@@ -1,6 +1,11 @@
 if __name__ == "__main__":
-    data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250428_The\neuron_segments_dict.h5"
-    info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json'
+    # data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250428_The\neuron_segments_dict.h5"
+    data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict.h5"
+    # info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json'
+    info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\odor_info.json'
+
+#%%
+# Import necessary libraries
 import dash
 from dash import dcc, html, Input, Output, State, callback
 import numpy as np
@@ -366,11 +371,15 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                         )
                 else:
                     # Calculate and plot mean ± SEM
-                    all_data = np.array([seg['deltaFoverF_0'] for seg in all_segments])
+                    all_data_raw = [seg['deltaFoverF_0'] for seg in all_segments]
+                    if not all_data_raw:
+                        continue
                     # Make sure all arrays have the same length
-                    min_len = min(len(data) for data in all_data)
-                    all_data = np.array([data[:min_len] for data in all_data])
-                    
+                    min_len = min(len(data) for data in all_data_raw)
+                    # Truncate all arrays to the same length
+                    all_data_truncated = [data[:min_len] for data in all_data_raw]
+                    all_data = np.array(all_data_truncated)
+
                     mean_data = np.mean(all_data, axis=0)
                     sem_data = stats.sem(all_data, axis=0)
                     x_values = np.arange(min_len) - 30
@@ -660,7 +669,7 @@ def combine_lr_neurons(neuron_segments_dict):
     
     return combined_dict
 
-def visweb(neuron_segments_dict, odor_information=None, port=8050):
+def run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8050):
     """
     Main function to create and run the neuron activity visualization dashboard.
     
@@ -685,4 +694,4 @@ if __name__ == "__main__":
         odor_information = json.load(f)
     
     # Start the visualization web app
-    app = visweb(neuron_segments_dict, odor_information, port=8050)  # Change port if needed
+    app = run_neuron_dashboard(neuron_segments_dict, odor_information, port=8051)  # Change port if needed
