@@ -33,6 +33,23 @@ def sort_by_intervals(input_df: pd.DataFrame, stimulus_intervals: list,stimulus_
     Sorts the input DataFrame by the stimulus and buffer
     '''
     values = input_df.values
+    max_index = values.shape[1] 
+    # 截断intervals以确保不超出数据范围
+    def truncate_intervals(intervals, max_idx):
+        truncated = []
+        for start, end in intervals:
+            # 确保start不超出范围
+            start = min(start, max_idx - 1)
+            # 确保end不超出范围
+            end = min(end, max_idx)
+            # 只有当start < end时才添加interval
+            if start < end:
+                truncated.append((start, end))
+        return truncated
+    
+    stimulus_intervals = truncate_intervals(stimulus_intervals, max_index)
+    buffer_intervals = truncate_intervals(buffer_intervals, max_index)
+    
     stimulus_intervals_re = np.take(np.array(stimulus_intervals), stimulus_sort, axis=0)
     # stimulus_intervals_re_list = stimulus_intervals_re.tolist()
     # stimulus_intervals_re_list_with_tuples = [tuple(item) for item in stimulus_intervals_re_list]
