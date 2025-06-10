@@ -163,7 +163,8 @@ def plot_neurons_to_pdf(neuron_segments_dict, odor_information, output_file,
                     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', fontsize=8)
                 
                 # Add grid lines
-                ax.grid(True, linestyle='--', alpha=0.3)
+                # ax.grid(True, linestyle='--', alpha=0.3)
+                ax.grid(False)  # Disable grid for cleaner look
             
             # Adjust layout
             plt.tight_layout(rect=[0, 0, 1, 0.97])  # Make room for suptitle
