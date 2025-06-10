@@ -1,8 +1,8 @@
 if __name__ == "__main__":
-    h5_file_folder = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\test"
+    h5_file_folder = r"I:\WJH\0607_LQ\w3"
     config_file = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\config.json"
-    output_folder = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\test"
-    metadata_path = r"H:\Process_temporary\WJH\sensory_pipeline_python\channel_info_get\backup\metadata.csv"
+    output_folder = r"I:\WJH\0607_LQ\w3\labjack"
+    metadata_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\labjack\metadata.csv"
 
 #%%
 import os
@@ -108,7 +108,7 @@ def process_hdf5(file_path, state_mappings, slice_number = 20):
         start_counters.append(current_start)
         end_counters.append(prev_counter)
 
-    if states[0] != 'Buffer':
+    if states[0] == 'All Off':
         adjust_frame = end_counters[0]
         start_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in start_counters]
         end_volumes = [math.ceil((x - adjust_frame)/slice_number) for x in end_counters]
