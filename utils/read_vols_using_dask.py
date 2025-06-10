@@ -109,6 +109,73 @@ def lazy_read_tiff_stack(
     )
     return images_dask
 
+def display_2channel_volume_data_in_napari(
+    red_data,
+    green_data,
+    red_contrast_limits=(150, 400),
+    green_contrast_limits=(150, 400),
+    red_scale=(1, 5, 1, 1),
+    green_scale=(1, 5, 1, -1),
+    green_translate=(0, 0, -5, 1024 - 5),
+):    
+    viewer = napari.Viewer()
+    red_layer = viewer.add_image(red_data, name="red", colormap="red")
+    green_layer = viewer.add_image(green_data, name="green", colormap="green")
+    # red_layer.colormap = "red"
+    red_layer.blending = "additive"
+    red_layer.contrast_limits = red_contrast_limits
+    red_layer.scale = red_scale
+    # green_layer.colormap = "green"
+    green_layer.blending = "additive"
+    green_layer.contrast_limits = green_contrast_limits
+    green_layer.scale = green_scale
+    green_layer.translate = green_translate
+    return viewer
+
+def show_volumes_in_napari(
+    red_tiff_path,
+    green_tiff_path,
+    volume_read_params,
+    use_visual_stack=True,
+
+    visual_volume_count=None,
+    volume_read_start=0,
+    volume_read_interval=1,
+    volume_read_end=None,
+
+    red_contrast_limits=(150, 400),
+    green_contrast_limits=(150, 400),
+    red_scale=(1, 5, 1, 1),
+    green_scale=(1, 5, 1, -1),
+    green_translate=(0, 0, -5, 1024 - 5),
+):  
+    if not use_visual_stack:
+        visual_volume_count=None
+
+    red = lazy_read_tiff_stack(
+        red_tiff_path, volume_count=visual_volume_count, volume_read_params=volume_read_params
+    )[volume_read_start:volume_read_end:volume_read_interval]
+    green = lazy_read_tiff_stack(
+        green_tiff_path,
+        volume_count=visual_volume_count,
+        volume_read_params=volume_read_params,
+    )[volume_read_start:volume_read_end:volume_read_interval]
+
+    if not use_visual_stack:
+        red = red.compute()
+        green = green.compute()
+
+    viewer = display_2channel_volume_data_in_napari(
+        red,
+        green,
+        red_contrast_limits=red_contrast_limits,
+        green_contrast_limits=green_contrast_limits,
+        red_scale=red_scale,
+        green_scale=green_scale,
+        green_translate=green_translate,
+    )
+    return viewer
+
 def save_dask_array_as_npy(dask_array, output_path):
     # Convert the Dask array to a NumPy array
     numpy_array = dask_array.compute()
