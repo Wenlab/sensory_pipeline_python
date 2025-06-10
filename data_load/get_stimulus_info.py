@@ -20,8 +20,8 @@ def extract_intervals_from_excel(excel_path):
     experiment_df = {}
     for sheet_name in ex_sheet_names:
         df = experiment_excel.parse(sheet_name)
-        df['start'] = df['start']-1
-        df['end'] = df['end']-1
+        df['start'] = df['start']
+        df['end'] = df['end']
         experiment_df[sheet_name] = df
     
     return experiment_df
@@ -35,7 +35,7 @@ def stimulus_lists_generate(experiment_df):
         stimulus_lists[key] = []
         state = experiment_df[key]['state']
         for i in range(len(state)):
-            if "Odor" in state[i]:
+            if state[i] != 'Buffer' and state[i] != 'All Off':
                 stimulus_lists[key].append(state[i])
     return stimulus_lists
 
@@ -62,7 +62,7 @@ def extract_intervals(experiment_df,key):
     for index, row in experiment_df[key].iterrows():
         start = row['start']
         end = row['end']
-        if "Odor" in row['state']:
+        if "Buffer" not in row['state'] and "All Off" not in row['state']:
             stimulus_intervals.append((start, end))
         elif "Buffer" in row['state']:
             buffer_intervals.append((start, end))
