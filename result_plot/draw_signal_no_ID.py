@@ -40,6 +40,7 @@ def plot_neuron_signals(
     xtick_num=20,
     file_name="neuron_signals.png",
     params_description="default",
+    curve_fit=None,
     light_on_data=None,
     stimulus_list=None,
     alpha=0.7,
@@ -107,6 +108,19 @@ def plot_neuron_signals(
         if i < len(axs) - 1:  # Skip the last subplot for params_description
             cur_ax = axs[i]
             signals = intensity[i, :]
+            if curve_fit is not None:
+                # Use fitted_F0 for curve fitting if provided
+                signals_F0 = curve_fit[i, :]
+                # Plot curve_fit (fitted_F0) as a yellow line
+                cur_ax.plot(
+                    full_volumes,
+                    signals_F0,
+                    linestyle="-",
+                    linewidth=2,
+                    color='orange',
+                    alpha=0.7,
+                    label='curve_fit'
+                )
             
             # Plot main signal line
             cur_ax.plot(
@@ -116,6 +130,7 @@ def plot_neuron_signals(
                 linewidth=2,
                 color='black',
                 alpha=alpha,
+                label='raw_trace'
             )
             
             # Highlight isolated points (surrounded by NaN)
@@ -136,7 +151,7 @@ def plot_neuron_signals(
                 color='red',
                 alpha=alpha,
             )
-            
+            cur_ax.legend(loc='upper right', fontsize=8)
             # Add light stimulation periods with stimulus-specific colors
             if light_on_data is not None and stimulus_list is not None:
                 for idx, light_period in enumerate(light_on_data):
@@ -185,7 +200,7 @@ def plot_neuron_signals(
     return
 
 def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID_path=None, date=None, labjack_excel_path = None,
-                   n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
+                   if_curve_fit = True, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
                    alpha=0.7):
     """
     Draw raw signal from HDF5 file and save the plot.
@@ -193,6 +208,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
     # Load intensity and dID from the HDF5 file
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
     neuron_ids = dID
+    intensity_df = pd.DataFrame(intensity)
     # Load light stimulation data and stimulus list from Excel file
     light_on_data = None
     stimulus_list = None
@@ -202,7 +218,9 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
         ex_stimulus_list = stimulus_lists.get(exp_name, [])
         light_on_data = exp_stimulus_intervals
         stimulus_list = ex_stimulus_list
+        delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals)
 
+        fitted_F0 = fitted_F0.values
     if bi_ID_path:
         biological_ID_info = load_worm_ID(bi_ID_path)
         bi_ID = biological_ID_info[root_name]['biological']
@@ -229,6 +247,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
         xtick_num=xtick_num,
         file_name=file_name,
         params_description=params_description,
+        curve_fit=fitted_F0 if if_curve_fit else None,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
         alpha=alpha
@@ -348,6 +367,7 @@ if __name__ == "__main__":
             "row_height": 2.5,
             "col_width": 10,
             "xtick_num": 20,
-            "alpha": 0.7
+            "alpha": 0.7,
+            "if_curve_fit": True,
         }
         draw_raw_signal(**raw_args)
