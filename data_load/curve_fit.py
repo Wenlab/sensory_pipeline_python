@@ -40,7 +40,24 @@ def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_po
         delta_f_f0 = delta_f / (safe_baseline - background_noise)
         delta_F_over_F0.iloc[roi_idx] = delta_f_f0
         delta_F_over_F0.iloc[roi_idx] = delta_f_f0.astype(np.float32)
-    
+
+        # data cleaning： exclude absolute values larger than 5, abnormal values-> mean value of values next to it
+        # delta_F_over_F0.iloc[roi_idx][np.abs(delta_f_f0) > 5] = delta_F_over_F0.iloc[roi_idx].rolling(window=3, center=True).mean()
+        # condition = np.abs(delta_f_f0) > 5
+        # delta_F_over_F0.loc[roi_idx, condition] = delta_F_over_F0.iloc[roi_idx].rolling(window=3, center=True).mean()
+        series = pd.Series(delta_f_f0, index=intensity.columns)
+        condition = np.abs(delta_f_f0) > 5
+        
+        if condition.any():
+            # 将异常值设为NaN
+            series[condition] = np.nan
+            # 使用线性插值填充，limit_direction='both'确保首尾也能插值
+            series = series.interpolate(method='linear', limit_direction='both')
+            
+            # 如果插值后仍有NaN（比如开头或结尾全是异常值），用前后向填充
+            series = series.ffill().bfill()
+        
+        delta_F_over_F0.iloc[roi_idx] = series.astype(np.float32)
     delta_F_over_F0 = delta_F_over_F0.astype(np.float32)
     # 收集质量信息
     quality_info = {
