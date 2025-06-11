@@ -81,9 +81,12 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post):
         baseline_intervals.extend([(start - baseline_pre, start - baseline_post) for start, _ in intervals[1:]])
     else:
         baseline_intervals = []
+    
+    # 添加最后一个buffer的最后一部分
+    baseline_intervals.append((intensity.shape[1]-30, intensity.shape[1]))
         
     # 确保基线区间不超出数据的时间范围
-    baseline_intervals = [(max(0, start), max(0, end)) for start, end in baseline_intervals]
+    baseline_intervals = [(max(0, start), min(end, intensity.shape[1])) for start, end in baseline_intervals]
 
     baseline_timepoints = []
     baseline_values = []
