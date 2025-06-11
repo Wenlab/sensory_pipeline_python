@@ -34,11 +34,11 @@ def load_worm_data_dict(
 ):
     """处理单个worm的数据并存储到worm_data字典"""
     # 公共处理部分：读取ID、拟合F0等
-    ID = worm[key]['biological'].to_numpy()
+    biologicalID = worm[key]['biological'].to_numpy()
     
     modified_ID = [
         id_value if isinstance(id_value, str) and id_value.startswith('A') else f'{index}'
-        for index, id_value in enumerate(ID)
+        for index, id_value in enumerate(biologicalID)
     ]
     modified_ID_df = pd.DataFrame(modified_ID)
     
