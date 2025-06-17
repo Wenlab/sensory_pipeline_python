@@ -210,8 +210,8 @@ def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
             )
             red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
             green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
-            save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name, "red.npy"))
-            save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name, "green.npy"))
+            save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "red.npy"))
+            save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "green.npy"))
 
 def save_volumes_with_vol_range(
     tiff_path_,
