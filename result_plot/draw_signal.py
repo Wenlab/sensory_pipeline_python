@@ -1,12 +1,13 @@
-if __name__ == "__main__":
-    h5_path = r"I:\WJH\0628_LYP\w1\pixel_intensity.h5"
-    save_folder = r"I:\WJH\0628_LYP\w1\plot"
-    labjack_excel_path = r"I:\WJH\0628_LYP\Labjack\output_volumes.xlsx"
+# if __name__ == "__main__":
+#     h5_path = r"I:\WJH\0628_LYP\w1\pixel_intensity.h5"
+#     save_folder = r"I:\WJH\0628_LYP\w1\plot"
+#     labjack_excel_path = r"I:\WJH\0628_LYP\Labjack\output_volumes.xlsx"
 #%%
 import os
 import h5py
 import numpy as np
 import pandas as pd
+import json
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from tqdm import tqdm
@@ -41,6 +42,7 @@ def plot_neuron_signals(
     file_name="neuron_signals.png",
     params_description="default",
     curve_fit=None,
+    odor_config=None,
     light_on_data=None,
     stimulus_list=None,
     alpha=0.7,
@@ -57,6 +59,8 @@ def plot_neuron_signals(
         xtick_num (int, optional): Approximate number of x-axis ticks. Default is 20.
         file_name (str, optional): Output file name for the saved plot image. Default is "neuron_signals.png".
         params_description (str, optional): Description text to display in the last subplot. Default is "default".
+        curve_fit (np.ndarray, optional): Fitted F0 values for each neuron, shape (num_neurons, num_volumes). Default is None.
+        odor_config (dict, optional): Configuration for odor stimulation, map stimulus symbol to stimulus name.
         light_on_data (list of tuple, optional): List of (start, end) tuples indicating periods of light stimulation.
         stimulus_list (list, optional): List of stimulus types corresponding to light_on_data periods.
         alpha (float, optional): Transparency level for plot lines and shaded regions. Default is 0.7.
@@ -167,12 +171,17 @@ def plot_neuron_signals(
                         
                         # Add to legend dict (avoid duplicates)
                         if stimulus_type not in legend_dict:
-                            legend_dict[stimulus_type] = plt.Rectangle((0,0),1,1, 
+                            stimulus_name = odor_config.get(stimulus_type, stimulus_type) if odor_config else stimulus_type
+                            legend_dict[stimulus_name] = plt.Rectangle((0,0),1,1, 
                                                                      color=color, alpha=0.3)
             
             cur_ax.set_xticks(x_ticks)
             cur_ax.set_xticklabels([f"{int(x)}" for x in x_ticks], rotation=45)
-            cur_ax.set_title(f"Neuron {neuron_id}")
+            # Check if neuron_id is a numeric string that equals i
+            if (isinstance(neuron_id, str) and neuron_id.isdigit() and int(neuron_id) == i) or (isinstance(neuron_id, (int, np.integer)) and neuron_id == i):
+                cur_ax.set_title(f"Neuron {i}")
+            else:
+                cur_ax.set_title(f"Neuron {i} {neuron_id}")
             cur_ax.set_xlabel("Volumes")
             cur_ax.set_ylabel(ylabel)
             cur_ax.set_ylim(y_min, y_max)
@@ -199,7 +208,7 @@ def plot_neuron_signals(
     plt.close()
     return
 
-def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID_path=None, date=None, labjack_excel_path = None,
+def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
                    if_curve_fit = True, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
                    alpha=0.7):
     """
@@ -221,6 +230,13 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
         delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals)
 
         fitted_F0 = fitted_F0.values
+
+    if odor_config_file:
+        with open(odor_config_file, 'r') as f:
+            odor_config = json.load(f)
+    else:
+        odor_config = None
+
     if bi_ID_path:
         biological_ID_info = load_worm_ID(bi_ID_path)
         bi_ID = biological_ID_info[root_name]['biological']
@@ -248,6 +264,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
         file_name=file_name,
         params_description=params_description,
         curve_fit=fitted_F0 if if_curve_fit else None,
+        odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
         alpha=alpha
@@ -255,7 +272,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, bi_ID
     
     print(f"Raw signal plot saved to {file_name}")
 
-def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, bi_ID_path=None, date=None, labjack_excel_path = None,
+def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
                    n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
                    alpha=0.7, ylabel = "delta_F/F_0"):
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
@@ -272,6 +289,12 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, bi_ID
         stimulus_list = ex_stimulus_list
         delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals) # delta_F_over_F0 is a dataframe
     
+    if odor_config_file:
+        with open(odor_config_file, 'r') as f:
+            odor_config = json.load(f)
+    else:
+        odor_config = None
+
     if bi_ID_path:
         biological_ID_info = load_worm_ID(bi_ID_path)
         bi_ID = biological_ID_info[root_name]['biological']
@@ -302,6 +325,7 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, bi_ID
         xtick_num=xtick_num,
         file_name=file_name,
         params_description=params_description,
+        odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
         alpha=alpha,
@@ -330,22 +354,23 @@ if __name__ == "__main__":
     # # draw_raw_signal(**args)
     # draw_trend_signal(**args)
 
-    intensity_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\20250604.h5"
+    intensity_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5"
     import h5py
-    from result_plot.draw_signal_no_ID import *
+    from result_plot.draw_signal import *
     with h5py.File(intensity_path, 'r') as f:
         key_list = list(f.keys())
 
-    labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\labjack\output_volumes.xlsx"
+    labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx"
     for key in key_list:
-        save_folder = fr"H:\Process_temporary\WJH\olfactory\ID\result\20250604\tiffplot\{key}"
+        save_folder = fr"I:\WJH\flavor\raw_image\0515_EGCG\tiffplot\{key}"
         trend_args = {
             "h5_file_path": intensity_path,
             "save_folder": save_folder,
             "exp_name": f"{key}",
             "root_name": key,
-            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\ID0604_odor.xlsx",
-            "date": "20250529_odor",
+            "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
+            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
+            "date": "20250515_EGCG",
             "labjack_excel_path": labjack_excel_path,
             "n_cols": 2,
             "row_height": 2.5,
@@ -360,14 +385,14 @@ if __name__ == "__main__":
             "save_folder": save_folder,
             "exp_name": f"{key}",
             "root_name": key,
-            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\ID0604_odor.xlsx",
-            "date": "20250529_odor",
+            "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
+            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
+            "date": "20250515_EGCG",
             "labjack_excel_path": labjack_excel_path,
             "n_cols": 2,
             "row_height": 2.5,
             "col_width": 10,
             "xtick_num": 20,
-            "alpha": 0.7,
-            "if_curve_fit": True,
+            "alpha": 0.7
         }
         draw_raw_signal(**raw_args)
