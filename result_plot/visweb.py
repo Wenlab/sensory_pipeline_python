@@ -159,7 +159,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
         
         # Add a fixed height container for the plot
         html.Div([
-            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'})
+            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'}, responsive=True),
         ], id='plot-container', style={'height': '800px', 'width': '100%'})
     ])
     
