@@ -159,7 +159,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
         
         # Add a fixed height container for the plot
         html.Div([
-            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'})
+            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'}, responsive=True),
         ], id='plot-container', style={'height': '800px', 'width': '100%'})
     ])
     
@@ -357,7 +357,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                     for seg in all_segments:
                         values = seg['deltaFoverF_0']
                         x_values = np.arange(len(values)) - 30
-                        
+                        # Create hover text with worm_key and date
+                        hover_text = f"{seg.get('worm_key', '')} {seg.get('date', '')}"
                         fig.add_trace(
                             go.Scatter(
                                 x=x_values,
@@ -365,7 +366,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                                 mode='lines',
                                 line=dict(width=1, color=highlight_color),
                                 opacity=0.4,
-                                showlegend=False
+                                showlegend=False,
+                                hovertemplate=f"{hover_text}<br>y: %{{y:.3f}}<extra></extra>"
                             ),
                             row=row_idx, col=col_idx
                         )

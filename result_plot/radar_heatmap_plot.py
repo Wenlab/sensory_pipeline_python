@@ -160,7 +160,7 @@ def compare_compounds_and_dilutions(neuron_segments_dict, odor_information, outp
 
 def extract_peak_responses(neuron_segments_dict):
     """
-    Extract the peak responses during stimulus periods for each neuron and stimulus,
+    Extract the peak responses during stimulus and post_stimulus periods for each neuron and stimulus,
     preserving the sign (positive or negative) of the response.
     """
     # Initialize dictionary to store max responses
@@ -189,7 +189,7 @@ def extract_peak_responses(neuron_segments_dict):
                 # Define stimulus period (starts at index 30 and lasts 50 frames)
                 stim_start = 30
                 stim_end = stim_start + 50
-                buffer_end = stim_end + 120
+                buffer_end = stim_end + 100
                 
                 # Extract the stimulus period
                 stim_period = time_series[stim_start:stim_end]
@@ -593,6 +593,23 @@ def create_heatmap_comparison(response_df, compound_types, odor_information, out
                 # Extract just the concentration part
                 concentration = description.split(' ', 1)[1]
                 dilution_responses[concentration] = response_df[col]
+        def sort_key(conc):
+            import re
+            # 匹配数值和单位
+            match = re.match(r"([0-9.]+)\s*(%|uM|μM)", conc)
+            if match:
+                value = float(match.group(1))
+                unit = match.group(2)
+                # %优先，uM其次
+                unit_order = {'%': 0, 'uM': 1, 'μM': 1}
+                return (unit_order.get(unit, 2), value)
+            else:
+                # 未知格式排最后
+                return (99, float('inf'))
+        # Sort the columns by concentration
+        if not dilution_responses.empty:
+            sorted_cols = sorted(dilution_responses.columns, key=sort_key)
+            dilution_responses = dilution_responses[sorted_cols]
         
         if dilution_responses.empty:
             continue
