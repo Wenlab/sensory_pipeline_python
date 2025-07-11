@@ -3,7 +3,7 @@ if __name__ == "__main__":
     red_file_path = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250522_LThe\w5_2025-05-22_16-37-58\red.npy"
     aligned_volume_path = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250522_LThe\w5_2025-05-22_16-37-58\aligned_volumes_mip.npy"
     neuron_pt_tuple_path = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250522_LThe\w5_2025-05-22_16-37-58\all_neuron_pt_tuple.npy"
-#%%
+# %%
 import numpy as np
 import napari
 import sys
@@ -13,7 +13,7 @@ if __name__ == "__main__":
 
 from id_identify.box_region_npy import box_region_npy
 
-#%%
+# %%
 def image_process(image_np, background_value = 110):
     """
     Denoise
@@ -48,14 +48,14 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , a
 
     return green, red, mask
 
-def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,1], red_scale = [1,5,1,-1], red_translate = [0,0,-5,1024-5], mask_scale=[1,5,1,1]):
+def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024]):
     viewer = napari.Viewer()
-    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, contrast_limits=[120,250])
+    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, translate=green_translate, contrast_limits=[120,250])
     viewer.add_image(red, name='red', colormap='red', blending='additive', scale=red_scale, translate=red_translate, contrast_limits=[120,250])
-    viewer.add_labels(mask, name=mask_name, blending='additive', scale=mask_scale, opacity=1.0)
+    viewer.add_labels(mask, name=mask_name, blending='additive', scale=mask_scale, translate=mask_translate, opacity=1.0)
     return viewer
 
-def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path , aligned_volume_path = None, mask_name = "mask",green_scale=[1,5,1,1], red_scale = [1,5,1,-1], red_translate = [0,0,-5,1024-5], mask_scale=[1,5,1,1]):
+def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path , aligned_volume_path = None, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024]):
     
     green, red, mask = image_and_box_load(green_file_path=green_file_path,
                                           red_file_path=red_file_path,
@@ -68,21 +68,27 @@ def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path 
                             mask_name=mask_name,
                             green_scale=green_scale,
                             red_scale=red_scale,
+                            green_translate=green_translate,
                             red_translate=red_translate,
-                            mask_scale=mask_scale)
-    
+                            mask_scale=mask_scale,
+                            mask_translate=mask_translate)
 
     
     return viewer
 
-#%%
+# %%
 if __name__ == "__main__":
-    viewer = id_identify_in_napari(green_file_path=green_file_path,
-                         red_file_path=red_file_path,
-                         neuron_pt_tuple_path=neuron_pt_tuple_path,
-                         aligned_volume_path=aligned_volume_path,
-                         mask_name="w5",
-                         green_scale=[1,5,1,1],
-                         red_translate=[0,0,-5,1024-5],
-                         red_scale=[1, 5, 1, -1],
-                         mask_scale=[1, 5, 1, 1])
+    viewer = id_identify_in_napari(
+        green_file_path=green_file_path,
+        red_file_path=red_file_path,
+        neuron_pt_tuple_path=neuron_pt_tuple_path,
+        aligned_volume_path=aligned_volume_path,
+        mask_name="w5",
+        green_scale=[1, 5, 1, -1],
+        red_scale=[1, 5, 1, 1],
+        red_translate=[0, 0, 0, 0],
+        green_translate=[0, 0, 0, 1024],
+        mask_scale=[1, 5, 1, -1],
+        mask_translate=[0, 0, 0, 1024],
+    )
+    napari.run()
