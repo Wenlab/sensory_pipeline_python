@@ -99,8 +99,8 @@ def box_region_npy(neuron_pt_tuple, output_shape, volume_start_number=0, save_pa
 
     if if_save:
         if save_path is None:
-            save_path = os.path.join(os.path.dirname(save_path), "box_region.npy")
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            save_path = os.path.join(os.getcwd(), "box_region.npy")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         np.save(save_path, masks)
         
     return masks
