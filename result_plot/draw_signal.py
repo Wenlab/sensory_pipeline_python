@@ -45,6 +45,7 @@ def plot_neuron_signals(
     odor_config=None,
     light_on_data=None,
     stimulus_list=None,
+    neurons_list=None,
     alpha=0.7,
     ylabel = "Fluorescence Intensity"
 ):
@@ -52,7 +53,7 @@ def plot_neuron_signals(
     Plot neural signal traces for multiple neurons, with optional light stimulation periods colored by stimulus type.
     Args:
         intensity (np.ndarray): 2D array of intensity values, shape (num_neurons, num_volumes).
-        dID (list): array of neuron IDs corresponding to the rows in intensity.
+        neuron_ids (list): array of neuron IDs corresponding to the rows in intensity.
         n_cols (int, optional): Number of columns in the subplot grid. Default is 2.
         row_height (float, optional): Height of each subplot row in inches. Default is 2.5.
         col_width (float, optional): Width of each subplot column in inches. Default is 10.
@@ -63,10 +64,39 @@ def plot_neuron_signals(
         odor_config (dict, optional): Configuration for odor stimulation, map stimulus symbol to stimulus name.
         light_on_data (list of tuple, optional): List of (start, end) tuples indicating periods of light stimulation.
         stimulus_list (list, optional): List of stimulus types corresponding to light_on_data periods.
+        neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
         alpha (float, optional): Transparency level for plot lines and shaded regions. Default is 0.7.
+        ylabel (str, optional): Label for the y-axis. Default is "Fluorescence Intensity".
     Returns:
         None. The function saves the generated plot to the specified file.
     """
+
+    # Filter neurons if neurons_list is provided
+    if neurons_list is not None:
+        # Find indices of neurons to include
+        filtered_indices = []
+        filtered_neuron_ids = []
+        
+        for target_id in neurons_list:
+            # Find matching neuron indices
+            for idx, neuron_id in enumerate(neuron_ids):
+                # Convert both to string for comparison to handle mixed types
+                if str(neuron_id) == str(target_id):
+                    filtered_indices.append(idx)
+                    filtered_neuron_ids.append(neuron_id)
+                    break
+        
+        if len(filtered_indices) == 0:
+            print(f"Warning: No neurons found matching the provided neurons_list: {neurons_list}")
+            return
+            
+        # Filter intensity data and neuron IDs
+        intensity = intensity[filtered_indices, :]
+        neuron_ids = filtered_neuron_ids
+        
+        # Filter curve_fit data if provided
+        if curve_fit is not None:
+            curve_fit = curve_fit[filtered_indices, :]
 
     num_neurons = len(neuron_ids)
     num_subplots = num_neurons + 1  # +1 for params_description
@@ -181,7 +211,7 @@ def plot_neuron_signals(
             if (isinstance(neuron_id, str) and neuron_id.isdigit() and int(neuron_id) == i) or (isinstance(neuron_id, (int, np.integer)) and neuron_id == i):
                 cur_ax.set_title(f"Neuron {i}")
             else:
-                cur_ax.set_title(f"Neuron {i} {neuron_id}")
+                cur_ax.set_title(f"{i} --Neuron {neuron_id}")
             cur_ax.set_xlabel("Volumes")
             cur_ax.set_ylabel(ylabel)
             cur_ax.set_ylim(y_min, y_max)
@@ -210,9 +240,26 @@ def plot_neuron_signals(
 
 def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
                    if_curve_fit = True, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
-                   alpha=0.7):
+                   alpha=0.7, neurons_list=None):
     """
     Draw raw signal from HDF5 file and save the plot.
+    
+    Args:
+        h5_file_path (str): Path to the HDF5 file containing intensity data.
+        save_folder (str): Directory to save the output plot.
+        exp_name (str): Name of the experiment.
+        root_name (str, optional): Root name in HDF5 file structure.
+        odor_config_file (str, optional): Path to odor configuration JSON file.
+        bi_ID_path (str, optional): Path to biological ID Excel file.
+        date (str, optional): Experiment date.
+        labjack_excel_path (str, optional): Path to labjack Excel file with stimulus information.
+        if_curve_fit (bool, optional): Whether to include curve fitting. Default is True.
+        n_cols (int, optional): Number of columns in subplot grid. Default is 2.
+        row_height (float, optional): Height of each subplot row. Default is 2.5.
+        col_width (float, optional): Width of each subplot column. Default is 10.
+        xtick_num (int, optional): Number of x-axis ticks. Default is 20.
+        alpha (float, optional): Transparency level. Default is 0.7.
+        neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
     """
     # Load intensity and dID from the HDF5 file
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
@@ -267,6 +314,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
         odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
+        neurons_list=neurons_list,
         alpha=alpha
     )
     
@@ -274,7 +322,27 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
 
 def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
                    n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
-                   alpha=0.7, ylabel = "delta_F/F_0"):
+                   alpha=0.7, ylabel = "delta_F/F_0", neurons_list=None):
+    """
+    Draw trend signal (delta F/F0) from HDF5 file and save the plot.
+    
+    Args:
+        h5_file_path (str): Path to the HDF5 file containing intensity data.
+        save_folder (str): Directory to save the output plot.
+        exp_name (str): Name of the experiment.
+        root_name (str, optional): Root name in HDF5 file structure.
+        odor_config_file (str, optional): Path to odor configuration JSON file.
+        bi_ID_path (str, optional): Path to biological ID Excel file.
+        date (str, optional): Experiment date.
+        labjack_excel_path (str, optional): Path to labjack Excel file with stimulus information.
+        n_cols (int, optional): Number of columns in subplot grid. Default is 2.
+        row_height (float, optional): Height of each subplot row. Default is 2.5.
+        col_width (float, optional): Width of each subplot column. Default is 10.
+        xtick_num (int, optional): Number of x-axis ticks. Default is 20.
+        alpha (float, optional): Transparency level. Default is 0.7.
+        ylabel (str, optional): Label for y-axis. Default is "delta_F/F_0".
+        neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
+    """
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
     neuron_ids = dID
     intensity_df = pd.DataFrame(intensity)
@@ -328,6 +396,7 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
         odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
+        neurons_list=neurons_list,
         alpha=alpha,
         ylabel= ylabel
     )
@@ -354,30 +423,31 @@ if __name__ == "__main__":
     # # draw_raw_signal(**args)
     # draw_trend_signal(**args)
 
-    intensity_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5"
+    intensity_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250705\20250705.h5"
     import h5py
     from result_plot.draw_signal import *
     with h5py.File(intensity_path, 'r') as f:
         key_list = list(f.keys())
 
-    labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx"
-    for key in key_list:
-        save_folder = fr"I:\WJH\flavor\raw_image\0515_EGCG\tiffplot\{key}"
+    labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250705\labjack\output_volumes.xlsx"
+    for key in ['w1']:
+        save_folder = fr"I:\WJH\flavor\raw_image\20250705\select\{key}"
         trend_args = {
             "h5_file_path": intensity_path,
             "save_folder": save_folder,
             "exp_name": f"{key}",
             "root_name": key,
             "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
-            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
-            "date": "20250515_EGCG",
+            "bi_ID_path": None,
+            "date": "20250705",
             "labjack_excel_path": labjack_excel_path,
             "n_cols": 2,
             "row_height": 2.5,
             "col_width": 10,
             "xtick_num": 20,
             "alpha": 0.7,
-            "ylabel": "deltaF/F_0"
+            "ylabel": "deltaF/F_0",
+            "neurons_list": [1,2,3,5,7, 10, 12, 13, 16, 18,  19, 25, 26, 30, 31, 33]
         }
         draw_trend_signal(**trend_args)
         raw_args = {
@@ -386,13 +456,14 @@ if __name__ == "__main__":
             "exp_name": f"{key}",
             "root_name": key,
             "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
-            "bi_ID_path": r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
-            "date": "20250515_EGCG",
+            "bi_ID_path": None,
+            "date": "20250705",
             "labjack_excel_path": labjack_excel_path,
             "n_cols": 2,
             "row_height": 2.5,
             "col_width": 10,
             "xtick_num": 20,
-            "alpha": 0.7
+            "alpha": 0.7,
+            "neurons_list": [1,2,3,5,7, 10, 12, 13, 16, 18,  19, 25, 26, 30, 31, 33]
         }
         draw_raw_signal(**raw_args)
