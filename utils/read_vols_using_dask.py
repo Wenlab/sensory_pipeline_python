@@ -3,6 +3,7 @@ if __name__ == "__main":
     output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\w1\volumes"
 #%%
 import os
+import shutil
 import numpy as np
 from tqdm import tqdm
 import dask.array as da
@@ -109,7 +110,7 @@ def lazy_read_tiff_stack(
     )
     return images_dask
 
-def display_2channel_volume_data_in_napari(
+def display_channel_volume_data_in_napari(
     red_data,
     green_data,
     red_contrast_limits=(150, 400),
@@ -119,17 +120,19 @@ def display_2channel_volume_data_in_napari(
     green_translate=(0, 0, -5, 1024 - 5),
 ):    
     viewer = napari.Viewer()
-    red_layer = viewer.add_image(red_data, name="red", colormap="red")
-    green_layer = viewer.add_image(green_data, name="green", colormap="green")
-    # red_layer.colormap = "red"
-    red_layer.blending = "additive"
-    red_layer.contrast_limits = red_contrast_limits
-    red_layer.scale = red_scale
-    # green_layer.colormap = "green"
-    green_layer.blending = "additive"
-    green_layer.contrast_limits = green_contrast_limits
-    green_layer.scale = green_scale
-    green_layer.translate = green_translate
+    if red_data is not None:
+        red_layer = viewer.add_image(red_data, name="red", colormap="red")
+        # red_layer.colormap = "red"
+        red_layer.blending = "additive"
+        red_layer.contrast_limits = red_contrast_limits
+        red_layer.scale = red_scale
+    if green_data is not None:
+        green_layer = viewer.add_image(green_data, name="green", colormap="green")
+        # green_layer.colormap = "green"
+        green_layer.blending = "additive"
+        green_layer.contrast_limits = green_contrast_limits
+        green_layer.scale = green_scale
+        green_layer.translate = green_translate
     return viewer
 
 def show_volumes_in_napari(
@@ -151,21 +154,25 @@ def show_volumes_in_napari(
 ):  
     if not use_visual_stack:
         visual_volume_count=None
-
-    red = lazy_read_tiff_stack(
-        red_tiff_path, volume_count=visual_volume_count, volume_read_params=volume_read_params
+    if red_tiff_path is not None:
+        red = lazy_read_tiff_stack(
+            red_tiff_path, volume_read_params=volume_read_params
+        )[volume_read_start:volume_read_end:volume_read_interval]
+        if not use_visual_stack:
+            red = red.compute()
+    else:
+        red = None
+    if green_tiff_path is not None:
+        green = lazy_read_tiff_stack(
+            green_tiff_path,
+            volume_read_params=volume_read_params,
     )[volume_read_start:volume_read_end:volume_read_interval]
-    green = lazy_read_tiff_stack(
-        green_tiff_path,
-        volume_count=visual_volume_count,
-        volume_read_params=volume_read_params,
-    )[volume_read_start:volume_read_end:volume_read_interval]
+        if not use_visual_stack:
+            green = green.compute()
+    else:
+        green = None
 
-    if not use_visual_stack:
-        red = red.compute()
-        green = green.compute()
-
-    viewer = display_2channel_volume_data_in_napari(
+    viewer = display_channel_volume_data_in_napari(
         red,
         green,
         red_contrast_limits=red_contrast_limits,
@@ -185,10 +192,14 @@ def save_dask_array_as_npy(dask_array, output_path):
     # Save the NumPy array to a .npy file
     np.save(output_path, numpy_array)
 
-def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
+def batch_process_folder(folder_path, output_path,t_start=0, t_end=2, labjack=None):
+    # Get labjack data from NAS
+    if labjack is not None:
+        print(f"Downloading labjack data from {folder_path} to {output_path}...")
+        download_labjack_data_from_nas(folder_path, output_path)
+
     # Get all subfolders in the directory
     subfolders = [f for f in Path(folder_path).iterdir() if f.is_dir()]
-    
     for subfolder in subfolders:
         # Process each subfolder
         # if subfolder startswith("w"):
@@ -213,6 +224,29 @@ def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
             save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "red.npy"))
             save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "green.npy"))
 
+def download_labjack_data_from_nas(folder_path, output_path):
+    """
+    labjack data is stored in the format: folder_path*labjack*, it's stored in a folder with "labjack" in the name, usually only one folder.
+    This function will download the labjack data from the nas to the output_path.
+    """
+    print(f"Downloading labjack data from {folder_path} to {output_path}...")
+    # first check if the labjack folder exists
+    labjack_folder = Path(folder_path).glob("*labjack*")
+    if not labjack_folder:
+        return
+    labjack_folder = next(labjack_folder)  # Get the first matching folder
+    # Check if the folder is a directory
+    if not labjack_folder.is_dir():
+        print(f"{labjack_folder} is not a directory")
+        return
+    # Create the output directory if it doesn't exist
+    output_path = Path(output_path)
+    output_path.mkdir(parents=True, exist_ok=True)
+    # Copy the labjack folder to the output path
+    for item in labjack_folder.iterdir():
+        if item.is_file():
+            shutil.copy2(item, output_path / item.name)
+            
 def save_volumes_with_vol_range(
     tiff_path_,
     volume_read_params,
@@ -540,10 +574,63 @@ def process_experiment_with_tiff_range(
 
 #%%
 if __name__ == "__main__":
-    exp_path = tiff_dir_name
-    red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
-    green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
-    volume_read_params = dict(
+    # exp_path = tiff_dir_name
+    # red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
+    # green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
+    # volume_read_params = dict(
+    #     z_start_frame_number=0,
+    #     z_end_frame_number=17,
+    #     mod2_reverse=[False, False],
+    #     img_width=1024,
+    #     img_height=1024,
+    #     frame_number_per_volume=20,
+    #     img_dtype=np.uint16,
+    # )
+    # red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
+    # green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
+    # worm_name = "worm1"
+    # date_info = "202504"
+    # # Process red camera, volumes 10-50
+    # process_experiment_with_vol_range(
+    #     exp_path=exp_path,
+    #     output_folder=output_folder,
+    #     worm_name=worm_name,
+    #     date_info=date_info,
+    #     start_volume=10,
+    #     end_volume=50,
+    #     camera_type="red"
+    # )
+    
+    # # Process green camera, volumes 10-50
+    # process_experiment_with_vol_range(
+    #     exp_path=exp_path,
+    #     output_folder=output_folder,
+    #     worm_name=worm_name,
+    #     date_info=date_info,
+    #     start_volume=10,
+    #     end_volume=50,
+    #     camera_type="green"
+    # )
+
+    # process_experiment_with_tiff_range(
+    #     exp_path=exp_path,
+    #     output_folder=output_folder,
+    #     worm_name=worm_name,
+    #     date_info=date_info,
+    #     start_tiff_number=200,
+    #     end_tiff_number=1000,
+    #     camera_type="green"
+    # )
+    red_tiff_path_ = None
+    green_tiff_path_ = r"I:\WJH\flavor\signal_check\20250705\w1"
+
+    use_visual_stack_ = True
+    visual_volume_count_ = None
+    volume_read_start_ = 0
+    volume_read_interval_ = 1
+    volume_read_end_ = None
+
+    volume_read_params_ = dict(
         z_start_frame_number=0,
         z_end_frame_number=17,
         mod2_reverse=[False, False],
@@ -552,38 +639,20 @@ if __name__ == "__main__":
         frame_number_per_volume=20,
         img_dtype=np.uint16,
     )
-    red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
-    green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
-    worm_name = "worm1"
-    date_info = "202504"
-    # Process red camera, volumes 10-50
-    process_experiment_with_vol_range(
-        exp_path=exp_path,
-        output_folder=output_folder,
-        worm_name=worm_name,
-        date_info=date_info,
-        start_volume=10,
-        end_volume=50,
-        camera_type="red"
-    )
-    
-    # Process green camera, volumes 10-50
-    process_experiment_with_vol_range(
-        exp_path=exp_path,
-        output_folder=output_folder,
-        worm_name=worm_name,
-        date_info=date_info,
-        start_volume=10,
-        end_volume=50,
-        camera_type="green"
-    )
 
-    process_experiment_with_tiff_range(
-        exp_path=exp_path,
-        output_folder=output_folder,
-        worm_name=worm_name,
-        date_info=date_info,
-        start_tiff_number=200,
-        end_tiff_number=1000,
-        camera_type="green"
+    viewer = show_volumes_in_napari(
+        red_tiff_path=red_tiff_path_,
+        green_tiff_path=green_tiff_path_,
+        volume_read_params=volume_read_params_,
+        use_visual_stack=use_visual_stack_,
+        visual_volume_count=visual_volume_count_,
+        volume_read_start=volume_read_start_,
+        volume_read_interval=volume_read_interval_,
+        volume_read_end=volume_read_end_,
+        red_contrast_limits=(150, 400),
+        green_contrast_limits=(150, 300),
+        red_scale=(1, 1, 1, 1),
+        green_scale=(1, 1, 1, -1),
+        # green_translate=(0, 0, -5, 1024 - 5),
     )
+    napari.run()
