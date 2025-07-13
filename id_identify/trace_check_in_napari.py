@@ -59,7 +59,7 @@ def trace_check_in_napari(
     elif neuron_pt_tuple_path is not None:
         neuron_pt_tuple = np.load(neuron_pt_tuple_path)
         output_shape = (neuron_pt_tuple.shape[0], volume_read_params['z_end_frame_number'] - volume_read_params['z_start_frame_number'] + 1, 1024, 1024)
-        mask = box_region_npy(neuron_pt_tuple, output_shape=output_shape, if_save=True)
+        mask = box_region_npy(neuron_pt_tuple, output_shape=output_shape, if_save=True, save_path= neuron_pt_tuple_path.replace('.npy', '_mask.npy'))
         viewer.add_labels(
             mask,
             name="mask",
@@ -72,4 +72,56 @@ def trace_check_in_napari(
         print("No neuron boxes or neuron point tuple provided. Skipping label addition.")
 
     return viewer
+
+
+if __name__ == "__main__":
+    red_tiff_path_ = None
+    green_tiff_path_ = r"I:\WJH\flavor\signal_check\20250705\w1"
+
+    use_visual_stack_ = True
+    visual_volume_count_ = None
+    volume_read_start_ = 0
+    volume_read_interval_ = 1
+    volume_read_end_ = None
+
+    napari_settings = dict(
+        red_contrast_limits=(150, 400),
+        green_contrast_limits=(150, 400),
+        red_scale=(1, 5, 1, 1),
+        green_scale=(1, 5, 1, -1),
+        green_translate=(0, 0, 0, 1024),
+        label_scale=(1, 5, 1, -1),
+        label_translate=(0, 0, 0, 1024),
+        )
+
+
+    volume_read_params_ = dict(
+        z_start_frame_number=0,
+        z_end_frame_number=17,
+        mod2_reverse=[False, False],
+        img_width=1024,
+        img_height=1024,
+        frame_number_per_volume=20,
+        img_dtype=np.uint16,
+    )
+
+    label_read_params_ = dict(
+        neuron_pt_tuple_path = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250705\w1\synthetic_volume\all_neuron_pt_tuple.npy",
+        neuron_boxes_path = None
+    )
+        
+
+    viewer = trace_check_in_napari(
+        red_tiff_path=red_tiff_path_,
+        green_tiff_path=green_tiff_path_,
+        use_visual_stack=use_visual_stack_,
+        visual_volume_count=visual_volume_count_,
+        volume_read_start=volume_read_start_,
+        volume_read_interval=volume_read_interval_,
+        volume_read_end=volume_read_end_,
+        volume_read_params=volume_read_params_,
+        **napari_settings,
+        **label_read_params_,)
     
+    napari.run()
+
