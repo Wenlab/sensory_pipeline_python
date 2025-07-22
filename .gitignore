@@ -5,3 +5,6 @@
 *.pyc
 *.pyo
 __pycache__/
+
+# backup files
+/old_back_up
