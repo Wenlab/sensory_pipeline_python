@@ -30,7 +30,10 @@ def load_worm_data_dict(
     key, f, experiment_df,
     worm, stimulus_lists, 
     stimulus_sort=None, buffer_sort=None, 
-    need_sorting=False
+    need_sorting=False,
+    vps_setting=1,
+    baseline_pre=6, baseline_post=1,
+    background_noise=102,
 ):
     """处理单个worm的数据并存储到worm_data字典"""
     # 公共处理部分：读取ID、拟合F0等
@@ -48,7 +51,9 @@ def load_worm_data_dict(
     # print(f"intensity_dtype: {intensity.dtypes}")
     # fit curve
     delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(
-        intensity, stimulus_intervals)
+        intensity, stimulus_intervals, vps_setting=vps_setting,
+        baseline_pre=baseline_pre, baseline_post=baseline_post, background_noise=background_noise
+    )
     # print(f"delta_F_over_F0_dtype: {delta_F_over_F0.dtypes}")
 
     stimulus_list = stimulus_lists.get(key, [])
@@ -117,7 +122,9 @@ def load_worm_data_dict(
 
 def load_worm_data(
     h5_file_path, experiment_info, worm_id, 
-    stimulus_lists, sorting_config=None, exclude_key=None
+    stimulus_lists, sorting_config=None, exclude_key=None, vps_setting=1,
+    baseline_pre=6, baseline_post=1,
+    background_noise=102,
 ):
     """
     Load worm data from HDF5 file and process it.
@@ -151,12 +158,20 @@ def load_worm_data(
                         key, f, experiment_info, worm_id, stimulus_lists,
                         stimulus_sort=sort_params.get('stimulus_sort'),
                         buffer_sort=sort_params.get('buffer_sort'),
-                        need_sorting=True
+                        need_sorting=True,
+                        vps_setting=vps_setting,
+                        baseline_pre=baseline_pre,
+                        baseline_post=baseline_post,
+                        background_noise=background_noise
                     )
             else:
                 # 不需要排序的情况
                 worm_data[key] = load_worm_data_dict(
-                    key, f, experiment_info, worm_id, stimulus_lists
+                    key, f, experiment_info, worm_id, stimulus_lists,
+                    vps_setting=vps_setting,
+                    baseline_pre=baseline_pre,
+                    baseline_post=baseline_post,
+                    background_noise=background_noise
                 )
     
     return worm_data
