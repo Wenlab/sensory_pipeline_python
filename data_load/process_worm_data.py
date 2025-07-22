@@ -345,6 +345,9 @@ def load_and_process_worm_data(
     sorting_config=None,
     exclude_key=None,
     vps_setting=1,
+    baseline_pre=6,
+    baseline_post=1,
+    background_noise=102,
     group_size=5,
     if_group=False,
 ):
@@ -366,8 +369,12 @@ def load_and_process_worm_data(
                                worm_id=ID_info,
                                stimulus_lists=stimulus_lists,
                                sorting_config=sorting_config,
-                               exclude_key=exclude_key)
-    
+                               exclude_key=exclude_key,
+                               vps_setting=vps_setting,
+                               baseline_pre=baseline_pre,
+                               baseline_post=baseline_post,
+                               background_noise=background_noise)
+
     # process and segment
     neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized = extract_and_normalize_worm_data(worm_data=worm_data,
                                                                                                             date=date,
@@ -377,7 +384,16 @@ def load_and_process_worm_data(
                                                                                                             )
 
     # return a dict
-    return experiment_df, stimulus_lists, ID_info, worm_data, neuron_segments_dict, neuron_segments_dict_reorganized, neuron_groups
+    return_dict = {
+        "experiment_df": experiment_df,
+        "stimulus_lists": stimulus_lists,
+        "ID_info": ID_info,
+        "worm_data": worm_data,
+        "neuron_segments_dict": neuron_segments_dict,
+        "neuron_segments_dict_reorganized": neuron_segments_dict_reorganized,
+        "neuron_groups": neuron_groups,
+    }
+    return return_dict
 
 if __name__ == "__main__":
     # sorting_config_0604 = {
@@ -403,7 +419,7 @@ if __name__ == "__main__":
     #     }
     # }
 
-    experiment_df_0604_odor, stimulus_lists_0604_odor, ID_info_0604_odor, worm_data_0604_odor, neuron_segments_dict_0604_odor, neuron_segments_dict_reorganized_0604_odor, neuron_groups_0604_odor = load_and_process_worm_data(
+    return_dict = load_and_process_worm_data(
         h5_file_path=  r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\20250604.h5",
         channel_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\output_volumes.xlsx",
         ID_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\ID0604_odor.xlsx",
@@ -415,5 +431,5 @@ if __name__ == "__main__":
         r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
         root_name='neuron_segments_dict',
         mode='w',
-        **neuron_segments_dict_reorganized_0604_odor
+        **return_dict["neuron_segments_dict_reorganized"]
     )
