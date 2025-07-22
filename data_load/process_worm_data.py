@@ -1,14 +1,3 @@
-if __name__ == "__main__":
-    channel_info_path = (
-        r"H:\Process_temporary\WJH\olfactory\ID\result\20250529\output_volumes.xlsx"
-    )
-    ID_info_path = (
-        r"H:\Process_temporary\WJH\olfactory\ID\result\20250529\output_volumes.xlsx"
-    )
-    h5_file_path = (
-        r"H:\Process_temporary\WJH\olfactory\ID\result\20250529\20250529.h5"
-    )
-
 # %%
 import sys
 import os
@@ -24,7 +13,7 @@ from data_load.load_worm_data import load_worm_ID, load_worm_data
 
 
 # %%
-def extract_neuron_groups(worm_data):
+def extract_neuron_groups(worm_data, vps_setting=1):
     """
     cut off worm data into neuron groups based on biological_ID and segments.
     Parameters:
@@ -35,19 +24,13 @@ def extract_neuron_groups(worm_data):
             - 'stimulus_intervals': list of tuples (start, end) indicating stimulus periods
             - 'buffer_intervals': list of tuples (not used in this function)
             - 'delta_F_over_F': DataFrame of delta_F_over_F values
-    - worm_order: list
-        A list of integers (0 or 1) indicating the order of worms
-    - stimulus_list: list
-        A list of strings indicating the stimuli
+    - vps_setting: vps when taking photos
     Returns:
     - neuron_segments_dict: dict
         Dictionary containing segments data for each neuron group and worm
     - neuron_groups: dict
         Dictionary of neuron groups categorized by group keys
     """
-    # import numpy as np
-    # from scipy.ndimage import gaussian_filter1d
-
     # 1. Parse data to build neuron_groups
     neuron_groups = {}
     for worm_key, data in worm_data.items():
@@ -90,30 +73,14 @@ def extract_neuron_groups(worm_data):
             neuron_index = biological_ID.index(full_id)
             delta_F_trace = delta_F_over_F.iloc[neuron_index].values
 
-            # segments_data = []
-            # for idx,(start_time, end_time) in enumerate(stimulus_intervals):
-            #     start_idx = max(0, start_time - 30)
-            #     end_idx = min(len(delta_F_trace), end_time + 120)
-            #     seg_data = delta_F_trace[start_idx:end_idx]
-            #     seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
-
-            #     stimulus_type = worm_stimuli[idx]
-
-            #     segments_data.append({
-            #         'stimulus_type': stimulus_type,
-            #         'deltaFoverF_0': seg_data_smooth,
-            #         'start_time': start_time,
-            #         'end_time': end_time
-            #     })
-
             # cut stimulus intervals into fixed length segments
             segments_data = []
             for idx, (start_time, end_time) in enumerate(stimulus_intervals):
-                start_idx = max(0, start_time - 30)
-                end_idx = min(len(delta_F_trace), end_time + 120)
+                start_idx = max(0, start_time - 5*vps_setting)# included
+                end_idx = min(len(delta_F_trace), end_time + 25*vps_setting)# not included
 
                 # Define fixed stimulus duration
-                fixed_stimulus_duration = 50
+                fixed_stimulus_duration = 10 * vps_setting
 
                 # Split the segment into three parts
                 pre_stimulus = delta_F_trace[start_idx:start_time]
@@ -125,6 +92,9 @@ def extract_neuron_groups(worm_data):
                 # Concatenate the parts
                 seg_data = np.concatenate((pre_stimulus, stimulus, post_stimulus))
 
+                # downsample the segment
+                if vps_setting > 1:
+                    seg_data = downsampling(seg_data, vps_setting)
                 # Smooth the concatenated segment
                 seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
 
@@ -134,17 +104,12 @@ def extract_neuron_groups(worm_data):
                     {
                         "stimulus_type": stimulus_type,
                         "deltaFoverF_0": seg_data_smooth,
-                        "start_time": start_time,
-                        "end_time": end_time,
+                        "start_time": (start_time-start_idx)//vps_setting,# relative start time
+                        "end_time": (start_time+fixed_stimulus_duration-start_idx-1)//vps_setting,# relative end time
                     }
                 )
             if not segments_data:
                 continue
-
-            # if worm_order_value == 0:
-            #     # 确保segments_data足够长
-            #     reorder_indices = [4, 3, 2, 1, 0, 9, 8, 7, 6, 5, 14, 13, 12, 11, 10]
-            #     segments_data = [segments_data[i] for i in reorder_indices if i < len(segments_data)]
 
             seg_count = len(segments_data)
             if min_num_segments is None:
@@ -157,7 +122,7 @@ def extract_neuron_groups(worm_data):
         if not worm_segments:
             continue
 
-        # # 截断segments数量为最小数量，保持一致性
+        # Ensure all worms have the same length of segments
         for worm_key in worm_segments:
             worm_segments[worm_key] = worm_segments[worm_key][:min_num_segments]
 
@@ -183,6 +148,24 @@ def extract_neuron_groups(worm_data):
 
     return neuron_segments_dict, neuron_groups
 
+def downsampling(segment_data, vps_setting=5):
+    # Convert to numpy array if it's not already
+    if not isinstance(segment_data, np.ndarray):
+        segment_data = np.array(segment_data)
+    
+    # Calculate the length of downsampled data
+    original_length = len(segment_data)
+    downsampled_length = original_length // vps_setting
+    
+    # Trim the data to make it divisible by vps_setting
+    trimmed_length = downsampled_length * vps_setting
+    trimmed_data = segment_data[:trimmed_length]
+    
+    # Reshape and calculate mean for each bin
+    reshaped_data = trimmed_data.reshape(downsampled_length, vps_setting)
+    downsampled_data = np.mean(reshaped_data, axis=1)
+    
+    return downsampled_data
 
 def per_worm_zscore(neuron_segments_dict, group_size=5, if_group=False):
     """
@@ -324,7 +307,7 @@ def process_neuron_segments(neuron_segments_dict, group_size=5, if_group=False):
     return neuron_segments_dict
 
 
-def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False):
+def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1):
     """
     Process worm data to extract neuron segments and perform z-score normalization.
     Parameters:
@@ -338,7 +321,7 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
     - group_size: int, a group contains different stimulus segments
     """
     # 1. Extract neuron groups and segments
-    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data)
+    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting)
 
     # 2. Process neuron segments
     neuron_segments_dict = process_neuron_segments(
@@ -361,6 +344,7 @@ def load_and_process_worm_data(
     stimulus_lists=None,
     sorting_config=None,
     exclude_key=None,
+    vps_setting=1,
     group_size=5,
     if_group=False,
 ):
@@ -388,38 +372,48 @@ def load_and_process_worm_data(
     neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized = extract_and_normalize_worm_data(worm_data=worm_data,
                                                                                                             date=date,
                                                                                                             group_size=group_size,
-                                                                                                            if_group=if_group)
+                                                                                                            if_group=if_group,
+                                                                                                            vps_setting=vps_setting
+                                                                                                            )
 
+    # return a dict
     return experiment_df, stimulus_lists, ID_info, worm_data, neuron_segments_dict, neuron_segments_dict_reorganized, neuron_groups
 
 if __name__ == "__main__":
-    sorting_config_0604 = {
-        'w3':{
-                'stimulus_sort': [6,7,4,5,2,3,0,1],
-                'buffer_sort': [0,7,8,5,6,3,4,1,2]
-        },
-        'w4':{
-                'stimulus_sort': [6,7,4,5,2,3,0,1],
-                'buffer_sort': [0,7,8,5,6,3,4,1,2]
-        },
-        'w6':{
-                'stimulus_sort': [6,7,4,5,2,3,0,1],
-                'buffer_sort': [0,7,8,5,6,3,4,1,2]
-        },
-        'w7':{
-                'stimulus_sort': [6,7,4,5,2,3,0,1],
-                'buffer_sort': [0,7,8,5,6,3,4,1,2]
-        },
-        'w10':{
-                'stimulus_sort': [6,7,4,5,2,3,0,1],
-                'buffer_sort': [0,7,8,5,6,3,4,1,2]
-        }
-    }
+    # sorting_config_0604 = {
+    #     'w3':{
+    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
+    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
+    #     },
+    #     'w4':{
+    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
+    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
+    #     },
+    #     'w6':{
+    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
+    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
+    #     },
+    #     'w7':{
+    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
+    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
+    #     },
+    #     'w10':{
+    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
+    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
+    #     }
+    # }
 
     experiment_df_0604_odor, stimulus_lists_0604_odor, ID_info_0604_odor, worm_data_0604_odor, neuron_segments_dict_0604_odor, neuron_segments_dict_reorganized_0604_odor, neuron_groups_0604_odor = load_and_process_worm_data(
         h5_file_path=  r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\20250604.h5",
         channel_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\output_volumes.xlsx",
         ID_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\ID0604_odor.xlsx",
         date='20250604',
-        sorting_config=sorting_config_0604,
+        vps_setting=5
+    )
+    from utils.HDF5Toolkit import save_h5file
+    save_h5file(
+        r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
+        root_name='neuron_segments_dict',
+        mode='w',
+        **neuron_segments_dict_reorganized_0604_odor
     )
