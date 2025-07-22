@@ -4,9 +4,8 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_post=0, background_noise=102):
+def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=6, baseline_post=1, vps_setting = 1, background_noise=102):
     """
-    使用改进的拟合方法计算deltaF/F0
     
     Parameters:
     - intensity: DataFrame, 强度值数据
@@ -18,9 +17,8 @@ def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_po
     - fitted_F0_df: DataFrame, 拟合的F0曲线
     - quality_info: dict, 拟合质量信息
     """
-    # 使用改进的拟合函数
     fitted_F0_df, fitted_params, r2_scores, model_types = fitted_F_base(
-        intensity, intervals, baseline_pre, baseline_post
+        intensity, intervals, baseline_pre, baseline_post, vps_setting=vps_setting
     )
     
     # 计算delta_F_over_F0
@@ -70,21 +68,20 @@ def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=10, baseline_po
     
     return delta_F_over_F0, fitted_F0_df, quality_info
 
-def fitted_F_base(intensity, intervals, baseline_pre, baseline_post):
-    '''改进版本的fitted_F_base函数'''
+def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting=1):
     # baseline_intervals = [(start - baseline_pre, start - baseline_post) for start, _ in intervals]
     # improved
     baseline_intervals = []
     if intervals:
         first_start = intervals[0][0]
-        baseline_intervals.append((max(0, first_start - 100), max(0, first_start - 10)))
-        baseline_intervals.extend([(start - baseline_pre, start - baseline_post) for start, _ in intervals[1:]])
+        baseline_intervals.append((max(0, first_start - 20*vps_setting), max(0, first_start - 3)))
+        baseline_intervals.extend([(start - baseline_pre*vps_setting, start - baseline_post*vps_setting) for start, _ in intervals[1:]])
     else:
         baseline_intervals = []
     
     # 添加最后一个buffer的最后一部分
-    baseline_intervals.append((intensity.shape[1]-30, intensity.shape[1]))
-        
+    baseline_intervals.append((intensity.shape[1]-20*vps_setting, intensity.shape[1]))
+
     # 确保基线区间不超出数据的时间范围
     baseline_intervals = [(max(0, start), min(end, intensity.shape[1])) for start, end in baseline_intervals]
 
@@ -131,7 +128,7 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post):
         x_data = x_data[sorted_indices]
         y_data = y_data[sorted_indices]
         
-        # 去除异常值（可选）
+        # 去除异常值: 使用3-sigma规则
         y_mean = np.mean(y_data)
         y_std = np.std(y_data)
         valid_idx = np.where(np.abs(y_data - y_mean) < 3 * y_std)[0]  # 3-sigma规则
@@ -148,7 +145,6 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post):
             popt = best_params
         elif best_func.__name__ == 'polynomial':
             model_type = "polynomial"
-            # 为了兼容原有代码，我们将多项式模型参数转换为指数衰减的形式
             # 这里只是一个近似处理
             popt = [0, 0, np.mean(y_data)]  # 简单近似
         elif best_func.__name__ == 'double_exponential':
@@ -326,7 +322,7 @@ def fitting_curve_vs_original(intensity, key, intervals, fitted_F0_df, r2_scores
     pdf.close()
     print(f"Fitting comparison visualization saved to {pdf_filename}")
 
-def visualize_fitting_quality(intensity, key, intervals, fitted_F0_df, r2_scores, model_types, baseline_pre=10, baseline_post=0):
+def visualize_fitting_quality(intensity, key, intervals, fitted_F0_df, r2_scores, model_types, baseline_pre=5, baseline_post=0):
     """
     Visualize fitting quality and help identify problematic neurons
     
