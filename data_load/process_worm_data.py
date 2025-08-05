@@ -13,7 +13,7 @@ from data_load.load_worm_data import load_worm_ID, load_worm_data
 
 
 # %%
-def extract_neuron_groups(worm_data, vps_setting=1):
+def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
     """
     cut off worm data into neuron groups based on biological_ID and segments.
     Parameters:
@@ -25,6 +25,11 @@ def extract_neuron_groups(worm_data, vps_setting=1):
             - 'buffer_intervals': list of tuples (not used in this function)
             - 'delta_F_over_F': DataFrame of delta_F_over_F values
     - vps_setting: vps when taking photos
+    - boundary_method: str, method for boundary preservation in downsampling
+        - 'preserve': preserve boundary points exactly
+        - 'weighted': weighted averaging with emphasis on boundaries
+        - 'adaptive': adaptive method based on signal characteristics
+        - 'original': original averaging method
     Returns:
     - neuron_segments_dict: dict
         Dictionary containing segments data for each neuron group and worm
@@ -89,12 +94,17 @@ def extract_neuron_groups(worm_data, vps_setting=1):
                 ]
                 post_stimulus = delta_F_trace[end_time:end_idx]
 
-                # Concatenate the parts
-                seg_data = np.concatenate((pre_stimulus, stimulus, post_stimulus))
-
-                # downsample the segment
+                # downsample the segment using separated sampling method
                 if vps_setting > 1:
-                    seg_data = downsampling(seg_data, vps_setting)
+                    seg_data, relative_start_time, relative_end_time = downsampling_separated_enhanced(
+                        pre_stimulus, stimulus, post_stimulus, vps_setting, boundary_method
+                    )
+                else:
+                    # If no downsampling needed, concatenate the parts
+                    seg_data = np.concatenate((pre_stimulus, stimulus, post_stimulus))
+                    relative_start_time = len(pre_stimulus)
+                    relative_end_time = len(pre_stimulus) + len(stimulus) - 1
+                
                 # Smooth the concatenated segment
                 seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
 
@@ -104,8 +114,8 @@ def extract_neuron_groups(worm_data, vps_setting=1):
                     {
                         "stimulus_type": stimulus_type,
                         "deltaFoverF_0": seg_data_smooth,
-                        "start_time": (start_time-start_idx)//vps_setting,# relative start time
-                        "end_time": (start_time+fixed_stimulus_duration-start_idx-1)//vps_setting,# relative end time
+                        "start_time": relative_start_time,  # relative start time after separated downsampling
+                        "end_time": relative_end_time,      # relative end time after separated downsampling
                     }
                 )
             if not segments_data:
@@ -129,7 +139,7 @@ def extract_neuron_groups(worm_data, vps_setting=1):
         if min_num_segments > max_num_segments:
             max_num_segments = min_num_segments
 
-        # 构建每个段的信息
+        # use a dict to store detailed segments
         detailed_segments = {}
         for worm_key, segments in worm_segments.items():
             detailed_segments[worm_key] = []
@@ -148,24 +158,187 @@ def extract_neuron_groups(worm_data, vps_setting=1):
 
     return neuron_segments_dict, neuron_groups
 
-def downsampling(segment_data, vps_setting=5):
-    # Convert to numpy array if it's not already
+
+def downsampling_with_boundary_preservation(segment_data, vps_setting=5, boundary_method='preserve'):
+    """
+    Enhanced downsampling function with multiple boundary preservation strategies.
+    
+    Parameters:
+    - segment_data: array-like, input signal data
+    - vps_setting: int, downsampling factor
+    - boundary_method: str, method for handling boundaries
+        - 'preserve': preserve first and last points exactly
+        - 'weighted': give more weight to boundary points in averaging
+        - 'adaptive': use different strategies based on signal characteristics
+        - 'original': standard averaging (original method)
+    
+    Returns:
+    - downsampled_data: numpy array of downsampled signal
+    """
     if not isinstance(segment_data, np.ndarray):
         segment_data = np.array(segment_data)
     
-    # Calculate the length of downsampled data
     original_length = len(segment_data)
-    downsampled_length = original_length // vps_setting
+    if original_length <= vps_setting:
+        return segment_data.copy()
     
-    # Trim the data to make it divisible by vps_setting
-    trimmed_length = downsampled_length * vps_setting
-    trimmed_data = segment_data[:trimmed_length]
+    if boundary_method == 'original':
+        # Original method: simple averaging
+        downsampled_length = original_length // vps_setting
+        trimmed_length = downsampled_length * vps_setting
+        trimmed_data = segment_data[:trimmed_length]
+        reshaped_data = trimmed_data.reshape(downsampled_length, vps_setting)
+        return np.mean(reshaped_data, axis=1)
     
-    # Reshape and calculate mean for each bin
-    reshaped_data = trimmed_data.reshape(downsampled_length, vps_setting)
-    downsampled_data = np.mean(reshaped_data, axis=1)
+    elif boundary_method == 'preserve':
+        # Preserve exact boundary points while maintaining correct output length
+        downsampled_length = original_length // vps_setting
+        if downsampled_length == 0:
+            return np.array([segment_data[0]]) if original_length > 0 else np.array([])
+        
+        result = np.zeros(downsampled_length)
+        
+        # Always preserve first point
+        result[0] = segment_data[0]
+        
+        # Always preserve last point (if we have more than one output point)
+        if downsampled_length > 1:
+            result[-1] = segment_data[-1]
+        
+        # Fill middle points with averaged values, avoiding boundary regions
+        if downsampled_length > 2:
+            # Calculate indices for middle points
+            middle_indices = np.linspace(1, downsampled_length - 2, downsampled_length - 2, dtype=int)
+            
+            for i, out_idx in enumerate(middle_indices):
+                # Calculate corresponding input range for this middle point
+                # Skip boundary regions to avoid double-counting boundary points
+                start_input = max(vps_setting, (out_idx * original_length) // downsampled_length)
+                end_input = min(original_length - vps_setting, ((out_idx + 1) * original_length) // downsampled_length)
+                
+                if end_input > start_input:
+                    result[out_idx] = np.mean(segment_data[start_input:end_input])
+                else:
+                    # Fallback: use interpolation between boundaries
+                    alpha = (out_idx) / (downsampled_length - 1)
+                    result[out_idx] = (1 - alpha) * segment_data[0] + alpha * segment_data[-1]
+        
+        return result
     
-    return downsampled_data
+    elif boundary_method == 'weighted':
+        # Give more weight to boundary points while maintaining correct length
+        downsampled_length = original_length // vps_setting
+        result = np.zeros(downsampled_length)
+        
+        for i in range(downsampled_length):
+            start_idx = i * vps_setting
+            end_idx = min((i + 1) * vps_setting, original_length)
+            window = segment_data[start_idx:end_idx]
+            
+            if len(window) == vps_setting:
+                # Apply weighted average: more weight to edges within each window
+                weights = np.ones(vps_setting)
+                weights[0] *= 1.5  # First point gets more weight
+                weights[-1] *= 1.5  # Last point gets more weight
+                weights /= np.sum(weights)  # Normalize
+                result[i] = np.average(window, weights=weights)
+            else:
+                result[i] = np.mean(window)
+        
+        # Additionally preserve exact boundary points
+        if downsampled_length > 0:
+            result[0] = segment_data[0]
+        if downsampled_length > 1:
+            result[-1] = segment_data[-1]
+        
+        return result
+    
+    elif boundary_method == 'adaptive':
+        # Adaptive method based on signal characteristics with fixed output length
+        # Detect rapid changes and preserve them
+        gradient = np.abs(np.gradient(segment_data))
+        threshold = np.percentile(gradient, 75)  # Top 25% of changes
+        
+        downsampled_length = original_length // vps_setting
+        result = np.zeros(downsampled_length)
+        
+        # Standard bin-based processing but with adaptive weighting
+        for i in range(downsampled_length):
+            start_idx = i * vps_setting
+            end_idx = min((i + 1) * vps_setting, original_length)
+            window = segment_data[start_idx:end_idx]
+            window_grad = gradient[start_idx:end_idx]
+            
+            # If window contains significant changes, use different strategy
+            if np.any(window_grad > threshold):
+                # For regions with rapid change, preserve extreme values
+                if len(window) >= 3:
+                    # Weight extremes more heavily
+                    min_val = np.min(window)
+                    max_val = np.max(window)
+                    mean_val = np.mean(window)
+                    # Blend between mean and extremes based on gradient magnitude
+                    max_grad = np.max(window_grad)
+                    extreme_weight = min(max_grad / (threshold * 2), 1.0)
+                    if abs(max_val - mean_val) > abs(min_val - mean_val):
+                        result[i] = mean_val * (1 - extreme_weight) + max_val * extreme_weight
+                    else:
+                        result[i] = mean_val * (1 - extreme_weight) + min_val * extreme_weight
+                else:
+                    result[i] = np.mean(window)
+            else:
+                # Standard averaging for smooth regions
+                result[i] = np.mean(window)
+        
+        # Ensure boundary preservation
+        if downsampled_length > 0:
+            result[0] = segment_data[0]
+        if downsampled_length > 1:
+            result[-1] = segment_data[-1]
+        
+        return result
+    
+    else:
+        raise ValueError(f"Unknown boundary_method: {boundary_method}")
+
+
+def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_setting=5, boundary_method='preserve'):
+    """
+    Enhanced separate downsampling with configurable boundary preservation.
+    
+    Parameters:
+    - pre_stimulus, stimulus, post_stimulus: array-like, signal segments
+    - vps_setting: int, downsampling factor
+    - boundary_method: str, boundary preservation method
+    
+    Returns:
+    - seg_data_downsampled: concatenated downsampled signal
+    - relative_start_time: start time of stimulus in downsampled signal
+    - relative_end_time: end time of stimulus in downsampled signal
+    """
+    # Apply enhanced downsampling to each segment
+    pre_downsampled = downsampling_with_boundary_preservation(
+        pre_stimulus, vps_setting, boundary_method
+    ) if len(pre_stimulus) > 0 else np.array([])
+    
+    stimulus_downsampled = downsampling_with_boundary_preservation(
+        stimulus, vps_setting, boundary_method
+    ) if len(stimulus) > 0 else np.array([])
+    
+    post_downsampled = downsampling_with_boundary_preservation(
+        post_stimulus, vps_setting, boundary_method
+    ) if len(post_stimulus) > 0 else np.array([])
+    
+    # Calculate relative times
+    pre_length = len(pre_downsampled)
+    stimulus_length = len(stimulus_downsampled)
+    
+    # Concatenate segments
+    seg_data_downsampled = np.concatenate([
+        pre_downsampled, stimulus_downsampled, post_downsampled
+    ])
+    
+    return seg_data_downsampled, pre_length, pre_length + stimulus_length - 1
 
 def per_worm_zscore(neuron_segments_dict, group_size=5, if_group=False):
     """
@@ -307,7 +480,7 @@ def process_neuron_segments(neuron_segments_dict, group_size=5, if_group=False):
     return neuron_segments_dict
 
 
-def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1):
+def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve'):
     """
     Process worm data to extract neuron segments and perform z-score normalization.
     Parameters:
@@ -319,9 +492,10 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
             - 'buffer_intervals': list of tuples (not used in this function)
             - 'delta_F_over_F': DataFrame of delta_F_over_F values
     - group_size: int, a group contains different stimulus segments
+    - boundary_method: str, method for boundary preservation in downsampling
     """
     # 1. Extract neuron groups and segments
-    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting)
+    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method)
 
     # 2. Process neuron segments
     neuron_segments_dict = process_neuron_segments(
@@ -350,9 +524,33 @@ def load_and_process_worm_data(
     background_noise=102,
     group_size=5,
     if_group=False,
+    boundary_method='preserve',
 ):
     """
-    h5_file_path
+    Load and process worm data with enhanced boundary-preserving downsampling.
+    
+    Parameters:
+    - h5_file_path: str, path to HDF5 data file
+    - channel_info_path: str, path to channel information file
+    - ID_info_path: str, path to ID information file
+    - date: str, experiment date
+    - stimulus_lists: optional, predefined stimulus lists
+    - sorting_config: optional, configuration for sorting
+    - exclude_key: optional, keys to exclude from processing
+    - vps_setting: int, frames per second setting for downsampling
+    - baseline_pre: int, baseline period before stimulus
+    - baseline_post: int, baseline period after stimulus
+    - background_noise: float, background noise level
+    - group_size: int, size of stimulus groups for z-score normalization
+    - if_group: bool, whether to perform group-wise normalization
+    - boundary_method: str, method for boundary preservation during downsampling
+        - 'preserve': preserve exact boundary points
+        - 'weighted': weighted averaging with boundary emphasis
+        - 'adaptive': adaptive method based on signal characteristics
+        - 'original': standard averaging method
+    
+    Returns:
+    - return_dict: dict containing processed data including segments with preserved boundaries
     """
     # get stimulus info and ID info
     if stimulus_lists is None:
@@ -380,7 +578,8 @@ def load_and_process_worm_data(
                                                                                                             date=date,
                                                                                                             group_size=group_size,
                                                                                                             if_group=if_group,
-                                                                                                            vps_setting=vps_setting
+                                                                                                            vps_setting=vps_setting,
+                                                                                                            boundary_method=boundary_method
                                                                                                             )
 
     # return a dict
@@ -419,17 +618,19 @@ if __name__ == "__main__":
     #     }
     # }
 
-    return_dict = load_and_process_worm_data(
-        h5_file_path=  r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\20250604.h5",
-        channel_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\output_volumes.xlsx",
-        ID_info_path= r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\ID0604_odor.xlsx",
-        date='20250604',
-        vps_setting=5
+    result_dict_0515_EGCG = load_and_process_worm_data(
+        h5_file_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5",
+        channel_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx",
+        ID_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
+        date="20250515",
+        vps_setting=5,
+        exclude_key=["w3","w4"],
+        boundary_method='preserve'  # Use boundary preservation for better edge features
     )
-    from utils.HDF5Toolkit import save_h5file
-    save_h5file(
-        r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
-        root_name='neuron_segments_dict',
-        mode='w',
-        **return_dict["neuron_segments_dict_reorganized"]
-    )
+    # from utils.HDF5Toolkit import save_h5file
+    # save_h5file(
+    #     r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
+    #     root_name='neuron_segments_dict',
+    #     mode='w',
+    #     **return_dict["neuron_segments_dict_reorganized"]
+    # )
