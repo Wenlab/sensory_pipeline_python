@@ -30,9 +30,100 @@ class CelegansResponseAnalyzer:
         self.sampling_rate = sampling_rate
         self.response_features = {}
         self.filtered_responses = {}
+        self.corrected_data = {}
+    
+    def baseline_correction(self, trace, start_time=5, correction_window=3):
+        """
+        Perform baseline correction to ensure baseline mean is zero.
+        
+        Parameters:
+        -----------
+        trace : array-like
+            deltaF/F0 trace data
+        start_time : float
+            Stimulus onset time (baseline period is before this)
+        correction_window : float
+            Time window (in seconds) before stimulus onset to use for baseline calculation
+        
+        Returns:
+        --------
+        corrected_trace : np.array
+            Baseline-corrected trace
+        correction_factor : float
+            The correction factor applied
+        """
+        trace = np.array(trace)
+        baseline_end_idx = int(start_time * self.sampling_rate)
+        baseline_start_idx = max(0, int((start_time - correction_window) * self.sampling_rate))
+        
+        # Extract baseline segment
+        if baseline_end_idx > baseline_start_idx:
+            baseline_segment = trace[baseline_start_idx:baseline_end_idx]
+        else:
+            # If not enough baseline data, use first few points
+            baseline_segment = trace[:min(len(trace), int(2 * self.sampling_rate))]
+
+        correction_factor = np.mean(baseline_segment)
+        
+        corrected_trace = trace - correction_factor
+        return corrected_trace, correction_factor
+
+    def apply_baseline_correction_to_all(self):
+        """
+        Apply baseline correction to all trials in the dataset.
+        """
+        print("Applying baseline correction to all trials...")
+        
+        self.corrected_data = {}
+        correction_summary = []
+        
+        for neuron_name, stimuli_data in self.data.items():
+            self.corrected_data[neuron_name] = {}
+            
+            for stimulus_name, trials in stimuli_data.items():
+                corrected_trials = []
+                
+                for trial in trials:
+                    original_trace = trial['deltaFoverF_0']
+                    corrected_trace, correction_factor = self.baseline_correction(
+                        original_trace, trial['start_time']
+                    )
+                    
+                    # Create corrected trial with updated trace
+                    corrected_trial = trial.copy()
+                    corrected_trial['deltaFoverF_0'] = corrected_trace
+                    corrected_trial['original_deltaFoverF_0'] = original_trace
+                    corrected_trial['baseline_correction_factor'] = correction_factor
+                    
+                    corrected_trials.append(corrected_trial)
+                    
+                    # Store correction info for summary
+                    correction_summary.append({
+                        'neuron': neuron_name,
+                        'stimulus': stimulus_name,
+                        'worm_key': trial['worm_key'],
+                        'segment_index': trial['segment_index'],
+                        'correction_factor': correction_factor,
+                        'baseline_std_before': np.std(original_trace[:int(trial['start_time'] * self.sampling_rate)]),
+                        'baseline_mean_after': np.mean(corrected_trace[:int(trial['start_time'] * self.sampling_rate)])
+                    })
+                
+                self.corrected_data[neuron_name][stimulus_name] = corrected_trials
+        
+        # # Generate correction summary
+        # correction_df = pd.DataFrame(correction_summary)
+        # print(f"Baseline correction completed for {len(correction_df)} trials")
+        # print(f"Average correction factor: {correction_df['correction_factor'].mean():.6f}")
+        # print(f"Correction factor std: {correction_df['correction_factor'].std():.6f}")
+        # print(f"Average baseline mean after correction: {correction_df['baseline_mean_after'].mean():.6f}")
+        
+        # Update main data to use corrected data
+        self.data = self.corrected_data
+        
+        # return correction_df
         
     def extract_response_features(self, trace, start_time=5, end_time=14, 
-                                post_stimulus_window=5):
+                                post_stimulus_window=10):
         """
         Extract comprehensive features from a single response trace.
         
@@ -118,7 +209,7 @@ class CelegansResponseAnalyzer:
         # Biphasic response detection
         features['is_biphasic'] = self._detect_biphasic_response(
             analysis_window, features['baseline_mean'], 
-            stimulus_duration=(end_time - start_time)
+            stimulus_duration=(end_time - start_time+1)
         )
         
         # Response onset detection
@@ -184,7 +275,7 @@ class CelegansResponseAnalyzer:
         return np.nan
     
     def _detect_biphasic_response(self, analysis_window, baseline, threshold_ratio=0.3,
-                                stimulus_duration=9):
+                                stimulus_duration=10):
         """
         Detect biphasic responses (2 excitatory peaks):
         One peak during stimulus period and another peak during post-stimulus period
@@ -216,8 +307,7 @@ class CelegansResponseAnalyzer:
         
         # Find peaks in stimulus period
         stimulus_peaks, _ = find_peaks(stimulus_period, height=min_height, distance=int(1.0 * self.sampling_rate))
-        
-        # Find peaks in post-stimulus period  
+        # Find peaks in post-stimulus period
         post_peaks, _ = find_peaks(post_stimulus_period, height=min_height, distance=int(1.0 * self.sampling_rate))
         
         # Get maximum peak amplitudes in each period
@@ -616,6 +706,9 @@ def run_analysis_pipeline(neuron_segments_dict, sampling_rate=1.0):
     
     # Initialize analyzer
     analyzer = CelegansResponseAnalyzer(neuron_segments_dict, sampling_rate)
+
+    # Step 0: Baseline correction
+    analyzer.apply_baseline_correction_to_all()
     
     # Step 1: Extract features from all trials
     analyzer.analyze_all_responses()
@@ -668,19 +761,19 @@ if __name__ == "__main__":
             path = r"I:\WJH\flavor\neuron_segments_dict.h5",
             root_name= 'neuron_segments_dict')
     
-    # print how many trials in neuron-stimulus pairs
-    for neuron, stimuli in neuron_segments_dict.items():
-        for stimulus, trials in stimuli.items():
-            print(f"{neuron} - {stimulus}: {len(trials)} trials")
+    # # print how many trials in neuron-stimulus pairs
+    # for neuron, stimuli in neuron_segments_dict.items():
+    #     for stimulus, trials in stimuli.items():
+    #         print(f"{neuron} - {stimulus}: {len(trials)} trials")
 
     # Run the analysis pipeline
     analyzer, summary = run_analysis_pipeline(neuron_segments_dict, sampling_rate=1.0)
 
-    filtered_awcl_c1_11 = analyzer.filtered_responses['AWCL']['c1_11']
-    # Get all reliable neuron-stimulus pairs for sensory coding analysis
-    reliable_pairs = []
-    for neuron in analyzer.filtered_responses:
-        for stimulus in analyzer.filtered_responses[neuron]:
-            reliable_pairs.append((neuron, stimulus))
+    # filtered_awcl_c1_11 = analyzer.filtered_responses['AWCL']['c1_11']
+    # # Get all reliable neuron-stimulus pairs for sensory coding analysis
+    # reliable_pairs = []
+    # for neuron in analyzer.filtered_responses:
+    #     for stimulus in analyzer.filtered_responses[neuron]:
+    #         reliable_pairs.append((neuron, stimulus))
 
-    analyzer.plot_response_comparison('ASHL', 'c1_11')
+    analyzer.plot_response_comparison('ASER', 'c1_10')
