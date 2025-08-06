@@ -21,6 +21,7 @@ dependencies:
       - imageio
       - pandas
       - plotly
-      - napari[all]
       - h5py
+      - "napari-layer-divider[all]"
+      - "napari-label-manager[all]"
   
