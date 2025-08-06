@@ -19,6 +19,7 @@ from utils.HDF5_load import load_h5file
 from data_load.get_stimulus_info import *
 from data_load.curve_fit import calculate_delta_F_over_F0
 from data_load.load_worm_data import load_worm_ID
+from result_plot.visweb import generate_compound_color_scheme
 #%%
 def load_intensity_and_dID(h5_file_path, root_name=None):
     """
@@ -45,6 +46,7 @@ def plot_neuron_signals(
     odor_config=None,
     light_on_data=None,
     stimulus_list=None,
+    stimulus_color_dict=None,
     neurons_list=None,
     alpha=0.7,
     ylabel = "Fluorescence Intensity"
@@ -64,6 +66,7 @@ def plot_neuron_signals(
         odor_config (dict, optional): Configuration for odor stimulation, map stimulus symbol to stimulus name.
         light_on_data (list of tuple, optional): List of (start, end) tuples indicating periods of light stimulation.
         stimulus_list (list, optional): List of stimulus types corresponding to light_on_data periods.
+        stimulus_color_dict (dict, optional): Dictionary mapping stimulus types to colors. If None, uses generate_compound_color_scheme.
         neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
         alpha (float, optional): Transparency level for plot lines and shaded regions. Default is 0.7.
         ylabel (str, optional): Label for the y-axis. Default is "Fluorescence Intensity".
@@ -124,19 +127,13 @@ def plot_neuron_signals(
     y_max = np.percentile(intensity_wo_nan, 100)  # 99 percentile for upper bound
 
     # Automatically assign colors to different stimulus types
-    stimulus_colors = {}
+    stimulus_color_dict = {}
     legend_dict = {}
     
     if stimulus_list is not None:
-        # Get unique stimulus types
-        unique_stimuli = list(set(stimulus_list))
-        # Use matplotlib colormap to generate distinct colors
-        cmap = plt.cm.get_cmap('tab10')  # You can change to 'Set3', 'tab20', etc.
-        colors = [cmap(i / len(unique_stimuli)) for i in range(len(unique_stimuli))]
-        
-        # Assign colors to stimulus types
-        for i, stimulus in enumerate(unique_stimuli):
-            stimulus_colors[stimulus] = colors[i]
+        if stimulus_color_dict is not None:
+            stimulus_color_dict = generate_compound_color_scheme(stimulus_list)
+
 
     for i, neuron_id in enumerate(tqdm(neuron_ids, desc="Plotting neuron signals", leave=False)):
         if i < len(axs) - 1:  # Skip the last subplot for params_description
@@ -191,7 +188,7 @@ def plot_neuron_signals(
                 for idx, light_period in enumerate(light_on_data):
                     if idx < len(stimulus_list):
                         stimulus_type = stimulus_list[idx]
-                        color = stimulus_colors.get(stimulus_type, 'gray')
+                        color = stimulus_color_dict.get(stimulus_type, 'gray')
                         cur_ax.axvspan(
                             light_period[0],
                             light_period[1],
@@ -235,12 +232,14 @@ def plot_neuron_signals(
 
     plt.tight_layout()
     plt.savefig(file_name, dpi=300, bbox_inches='tight')
+    plt.savefig(file_name.replace('.png', '.pdf'), dpi=300, bbox_inches='tight')
     plt.close()
     return
 
-def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
-                   if_curve_fit = True, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
-                   alpha=0.7, neurons_list=None):
+def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, 
+                    odor_config_file = None, bi_ID_path=None, labjack_excel_path = None, stimulus_color_path=None,
+                    date=None, if_curve_fit = True, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
+                    alpha=0.7, neurons_list=None, baseline_pre=5):
     """
     Draw raw signal from HDF5 file and save the plot.
     
@@ -251,8 +250,9 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
         root_name (str, optional): Root name in HDF5 file structure.
         odor_config_file (str, optional): Path to odor configuration JSON file.
         bi_ID_path (str, optional): Path to biological ID Excel file.
-        date (str, optional): Experiment date.
         labjack_excel_path (str, optional): Path to labjack Excel file with stimulus information.
+        stimulus_color_path (str, optional): Path to JSON file containing stimulus color mapping.
+        date (str, optional): Experiment date.
         if_curve_fit (bool, optional): Whether to include curve fitting. Default is True.
         n_cols (int, optional): Number of columns in subplot grid. Default is 2.
         row_height (float, optional): Height of each subplot row. Default is 2.5.
@@ -260,6 +260,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
         xtick_num (int, optional): Number of x-axis ticks. Default is 20.
         alpha (float, optional): Transparency level. Default is 0.7.
         neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
+        baseline_pre (int, optional): volume number before stimulus to use for baseline calculation. Default is 5.
     """
     # Load intensity and dID from the HDF5 file
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
@@ -274,7 +275,7 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
         ex_stimulus_list = stimulus_lists.get(exp_name, [])
         light_on_data = exp_stimulus_intervals
         stimulus_list = ex_stimulus_list
-        delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals)
+        delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals, baseline_pre=baseline_pre)
 
         fitted_F0 = fitted_F0.values
 
@@ -293,6 +294,11 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
             for index, id_value in enumerate(bi_ID)
         ]
         neuron_ids = np.array(neuron_ids)
+    if stimulus_color_path:
+        with open(stimulus_color_path, 'r') as f:
+            stimulus_color_dict = json.load(f)
+    else:
+        stimulus_color_dict = None
 
     # Prepare parameters description
     params_description = exp_name + f"\nDate: {date}" if date else exp_name
@@ -314,15 +320,18 @@ def draw_raw_signal(h5_file_path, save_folder, exp_name, root_name = None, odor_
         odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
+        stimulus_color_dict=stimulus_color_dict,
         neurons_list=neurons_list,
         alpha=alpha
     )
     
     print(f"Raw signal plot saved to {file_name}")
 
-def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_config_file = None, bi_ID_path=None, date=None, labjack_excel_path = None,
-                   n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
-                   alpha=0.7, ylabel = "delta_F/F_0", neurons_list=None):
+
+def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None,
+                      odor_config_file=None, bi_ID_path=None, labjack_excel_path=None, stimulus_color_path=None,
+                   date=None, n_cols=2, row_height=2.5, col_width=10, xtick_num=20,
+                   alpha=0.7, ylabel = "delta_F/F_0", neurons_list=None, baseline_pre=5):
     """
     Draw trend signal (delta F/F0) from HDF5 file and save the plot.
     
@@ -333,8 +342,9 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
         root_name (str, optional): Root name in HDF5 file structure.
         odor_config_file (str, optional): Path to odor configuration JSON file.
         bi_ID_path (str, optional): Path to biological ID Excel file.
-        date (str, optional): Experiment date.
         labjack_excel_path (str, optional): Path to labjack Excel file with stimulus information.
+        stimulus_color_path (str, optional): Path to JSON file containing stimulus color mapping.
+        date (str, optional): Experiment date.
         n_cols (int, optional): Number of columns in subplot grid. Default is 2.
         row_height (float, optional): Height of each subplot row. Default is 2.5.
         col_width (float, optional): Width of each subplot column. Default is 10.
@@ -342,6 +352,7 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
         alpha (float, optional): Transparency level. Default is 0.7.
         ylabel (str, optional): Label for y-axis. Default is "delta_F/F_0".
         neurons_list (list, optional): List of neuron IDs to include in the plot. If None, all neurons are included.
+        baseline_pre (int, optional): Volume number before stimulus to use for baseline calculation. Default is 5.
     """
     intensity, dID = load_intensity_and_dID(h5_file_path, root_name=root_name)
     neuron_ids = dID
@@ -355,8 +366,8 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
         ex_stimulus_list = stimulus_lists.get(exp_name, [])
         light_on_data = exp_stimulus_intervals
         stimulus_list = ex_stimulus_list
-        delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals) # delta_F_over_F0 is a dataframe
-    
+        delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(intensity_df, exp_stimulus_intervals, baseline_pre=baseline_pre) # delta_F_over_F0 is a dataframe
+
     if odor_config_file:
         with open(odor_config_file, 'r') as f:
             odor_config = json.load(f)
@@ -372,6 +383,11 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
             for index, id_value in enumerate(bi_ID)
         ]
         neuron_ids = np.array(neuron_ids)
+    if stimulus_color_path:
+        with open(stimulus_color_path, 'r') as f:
+            stimulus_color_dict = json.load(f)
+    else:
+        stimulus_color_dict = None
 
     delta_F_over_F0 = delta_F_over_F0.values
     # Get rid of abnormal values  absolute value larger than 6
@@ -396,6 +412,7 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None, odor_
         odor_config=odor_config,
         light_on_data=light_on_data,
         stimulus_list=stimulus_list,
+        stimulus_color_dict=stimulus_color_dict,
         neurons_list=neurons_list,
         alpha=alpha,
         ylabel= ylabel
