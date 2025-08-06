@@ -1,9 +1,3 @@
-if __name__ == "__main__":
-    # data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250428_The\neuron_segments_dict.h5"
-    data_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict.h5"
-    # info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json'
-    info_path = r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\odor_info.json'
-
 #%%
 # Import necessary libraries
 import dash
@@ -72,7 +66,7 @@ def get_stimulus_label(stimulus_code, odor_information=None):
         return f"{stimulus_code}: {odor_information[stimulus_code]}"
     return stimulus_code
 
-def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
+def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimulus_color_map=None):
     """
     Create a streamlined Dash app for visualizing neuronal responses.
     
@@ -94,8 +88,9 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
     all_stimuli = sorted(all_stimuli)
     
     # Generate colors automatically for all stimuli
-    stimulus_color_map = generate_compound_color_scheme(all_stimuli)
-    
+    if stimulus_color_map is None:
+        stimulus_color_map = generate_compound_color_scheme(all_stimuli)
+
     # Preprocess data for faster plotting
     preprocessed_data = preprocess_data_for_plotting(neuron_segments_dict)
     
@@ -254,18 +249,18 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                         for seg in processed_neuron_dict[neuron][stim]:
                             values = seg['deltaFoverF_0']
                             min_values.append(np.min(values))
-                            max_values.append(np.max(values))
+                            max_values.append(np.max(values))                            
             
             if min_values and max_values:
                 # Calculate appropriate y-range with buffer
-                y_min = min(min_values)
-                y_max = max(max_values)
+                y_min = np.percentile(min_values, 5)  # 5th percentile for lower bound
+                y_max = np.percentile(max_values, 95)  # 95th percentile for upper bound
                 # Add 15% buffer on each side
                 buffer = (y_max - y_min) * 0.15
                 neuron_y_ranges[neuron] = [y_min - buffer, y_max + buffer]
             else:
                 # Default range if no data
-                neuron_y_ranges[neuron] = [-0.2, 0.5]
+                neuron_y_ranges[neuron] = [-0.5, 0.5]
 
         # Add an empty domain to the left for neuron labels
         # This creates space for the neuron labels
@@ -324,6 +319,16 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
             )
             
             for col_idx, (group_key, stim_list) in enumerate(grouped_stimuli.items(), 1):
+                # Collect all segments for this neuron and stimulus group
+                all_segments = []
+                for stim in stim_list:
+                    if neuron in processed_neuron_dict and stim in processed_neuron_dict[neuron]:
+                        all_segments.extend(processed_neuron_dict[neuron][stim])
+                
+                if not all_segments:
+                    continue
+                start_time = all_segments[0].get("start_time", 5)
+                endtime = all_segments[0].get("end_time", 14)
                 # Get color for stimulus group
                 if combine_compounds:
                     # Use the color of the first stimulus in the group
@@ -334,7 +339,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                 # Add stimulus highlighting
                 fig.add_shape(
                     type="rect",
-                    x0=0, x1=50,
+                    x0=0, x1=endtime-start_time,
                     y0=y_range[0], y1=y_range[1],  # Use neuron-specific y-range
                     fillcolor=highlight_color,
                     opacity=0.15,
@@ -342,21 +347,13 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                     line_width=0,
                     row=row_idx, col=col_idx
                 )
-                
-                # Collect all segments for this neuron and stimulus group
-                all_segments = []
-                for stim in stim_list:
-                    if neuron in processed_neuron_dict and stim in processed_neuron_dict[neuron]:
-                        all_segments.extend(processed_neuron_dict[neuron][stim])
-                
-                if not all_segments:
-                    continue
-                    
+
                 if display_type == 'individual':
                     # Plot individual traces
                     for seg in all_segments:
                         values = seg['deltaFoverF_0']
-                        x_values = np.arange(len(values)) - 30
+                        # start_time = seg.get('start_time', 6)
+                        x_values = np.arange(len(values)) - start_time
                         # Create hover text with worm_key and date
                         hover_text = f"{seg.get('worm_key', '')} {seg.get('date', '')}"
                         fig.add_trace(
@@ -367,7 +364,12 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                                 line=dict(width=1, color=highlight_color),
                                 opacity=0.4,
                                 showlegend=False,
-                                hovertemplate=f"{hover_text}<br>y: %{{y:.3f}}<extra></extra>"
+                                hovertemplate=(
+                                    f"{hover_text}<br>y: %{{y:.3f}}<extra></extra>"
+                                    f"x: %{{x}}<br>"
+                                    f"y: %{{y}}<br>"
+                                    f"N: {len(all_segments)}"
+                                ),
                             ),
                             row=row_idx, col=col_idx
                         )
@@ -381,11 +383,12 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                     # Truncate all arrays to the same length
                     all_data_truncated = [data[:min_len] for data in all_data_raw]
                     all_data = np.array(all_data_truncated)
+                    # start_time = all_segments[0].get('start_time', 6)
 
                     mean_data = np.mean(all_data, axis=0)
                     sem_data = stats.sem(all_data, axis=0)
-                    x_values = np.arange(min_len) - 30
-                    
+                    x_values = np.arange(min_len) - start_time
+
                     # Plot mean line
                     fig.add_trace(
                         go.Scatter(
@@ -434,7 +437,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                 # Only add x-label on bottom row
                 if row_idx == len(selected_neurons):
                     fig.update_xaxes(
-                        title_text="Time (frames)", 
+                        title_text="Time (volumes)", 
                         row=row_idx, 
                         col=col_idx
                     )
@@ -454,7 +457,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None):
                 yanchor="top",
                 y=0.99,
                 xanchor="right",
-                x=1.1,
+                x=1.5,
                 title="Stimulus",
                 bordercolor="Black",
                 borderwidth=1
@@ -671,7 +674,7 @@ def combine_lr_neurons(neuron_segments_dict):
     
     return combined_dict
 
-def run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8050):
+def run_neuron_dashboard(neuron_segments_dict, odor_information=None, stimulus_color_map=None, port=8050):
     """
     Main function to create and run the neuron activity visualization dashboard.
     
@@ -682,8 +685,8 @@ def run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8050)
     odor_information : dict, optional
         Dictionary mapping stimulus codes to descriptions
     """
-    app = create_neuronal_dashboard(neuron_segments_dict, odor_information)
-    
+    app = create_neuronal_dashboard(neuron_segments_dict, odor_information, stimulus_color_map)
+
     # Run the app
     app.run(host="0.0.0.0", port= port, debug=True, jupyter_mode='external')
 
@@ -691,9 +694,11 @@ def run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8050)
 
 if __name__ == "__main__":
     # Load data and odor information
-    neuron_segments_dict = load_h5file(data_path, root_name='neuron_segments_dict')
-    with open(info_path, 'r', encoding='utf-8') as f:
-        odor_information = json.load(f)
+    # neuron_segments_dict = load_h5file(data_path, root_name='neuron_segments_dict')
+    neuron_segments_dict = load_h5file(r"I:\WJH\flavor\Albert_data\neuron_segments_dict.h5", root_name='neuron_segments_dict')
+    # with open(info_path, 'r', encoding='utf-8') as f:
+    #     odor_information = json.load(f)
+    
     
     # Start the visualization web app
-    app = run_neuron_dashboard(neuron_segments_dict, odor_information, port=8051)  # Change port if needed
+    app = run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8051)  # Change port if needed
