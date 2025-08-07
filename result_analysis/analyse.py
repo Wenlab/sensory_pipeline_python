@@ -378,84 +378,143 @@ class CelegansResponseAnalyzer:
                 self.response_features[neuron_name][stimulus_name] = trial_features
         
         print(f"Feature extraction completed for {len(self.response_features)} neurons")
-    
-    def detect_outliers(self, neuron_name, stimulus_name, features_to_use=None, 
-                       method='isolation_forest', contamination=0.1):
-        """
-        Detect outlier trials using multiple methods
+
+    def detect_outliers(self, neuron_name, stimulus_name, primary_features=None, correlation_threshold=0.6,
+                       stat_method='iqr', sigma_threshold=2.0):
+        """ 
+        Use 2 steps to detect outliers in response features:
+        1. Statistical outlier detection (e.g., IQR, Z-score)
+        2. Similarity-based outlier detection (correlation)
         
         Parameters:
-        -----------
         neuron_name : str
             Name of the neuron to analyze
         stimulus_name : str
             Name of the stimulus
-        features_to_use : list
-            List of feature names to use for outlier detection
-        method : str
-            Outlier detection method ('isolation_forest', 'zscore', 'iqr', 'dbscan')
-        contamination : float
-            Expected proportion of outliers
+        primary_features : list
+            List of primary feature names to use for outlier detection
+        stat_method : str
+            Outlier detection method ('zscore', 'iqr')
+        sigma_threshold : float
+            Z-score threshold for outlier detection
         """
-        if features_to_use is None:
-            features_to_use = [
-                'primary_response_amplitude', 'auc_stimulus', 'time_to_peak',
-                'rise_time', 'decay_time', 'snr', 'response_stability'
+        if primary_features is None:
+            primary_features = [
+                'primary_response_amplitude', 'auc_stimulus', 'snr'
             ]
         
         trials = self.response_features[neuron_name][stimulus_name]
+        n_trials = len(trials)
+        if n_trials < 3:
+            return {
+                'outlier_mask': np.zeros(n_trials, dtype=bool),
+                'step1_outliers': np.zeros(n_trials, dtype=bool),
+                'step2_outliers': np.zeros(n_trials, dtype=bool),
+                'correlations': [],
+                'method': 'insufficient_data'
+            }
         
-        # Create feature matrix
-        feature_matrix = []
-        for trial in trials:
-            row = [trial.get(feat, np.nan) for feat in features_to_use]
-            feature_matrix.append(row)
-        
-        feature_matrix = np.array(feature_matrix)
-        
-        # Handle NaN values
-        valid_mask = ~np.isnan(feature_matrix).any(axis=1)
-        valid_features = feature_matrix[valid_mask]
-        
-        if len(valid_features) < 3:  # Need minimum trials for outlier detection
-            return np.zeros(len(trials), dtype=bool)  # No outliers detected
-        
-        outlier_mask = np.zeros(len(trials), dtype=bool)
-        
-        if method == 'zscore':
-            z_scores = np.abs(stats.zscore(valid_features, axis=0))
-            outliers_valid = np.any(z_scores > 2.5, axis=1)
+        step1_outliers_mask = self._statistical_screening(
+            trials, primary_features, method=stat_method, sigma_threshold=sigma_threshold
+        )
+
+        step2_outliers_mask, correlations = self.trace_similarity_screening(
+            trials, ~step1_outliers_mask, correlation_threshold=correlation_threshold
+        )
+        step2_only_outliers = step2_outliers_mask & ~step1_outliers_mask
+
+        return {
+            'outlier_mask': step2_outliers_mask,
+            'step1_outliers': step1_outliers_mask,
+            'step2_outliers': step2_only_outliers,
+            'correlations': correlations,
+            'stats' : {
+                'original_count': n_trials,
+                'step1_removes': np.sum(step1_outliers_mask),
+                'step2_removes': np.sum(step2_only_outliers),
+                'final_removes': np.sum(step2_outliers_mask)
+            }
+        }
+
+    def _statistical_screening(self, trials, features, method='iqr', sigma_threshold=2.0):
+        """
+        Perform statistical outlier detection on response features.
+        """
+        n_trials = len(trials)
+        outlier_mask = np.zeros(n_trials, dtype=bool)
+
+        for feature in features:
+            values = []
+            valid_trials = []
+
+            for i, trial in enumerate(trials):
+                value = trial.get(feature, np.nan)
+                if not np.isnan(value):
+                    values.append(value)
+                    valid_trials.append(i)
+            if len(values) < 3:
+                continue
+
+            values = np.array(values)
+            value_indices = np.array(valid_trials)
+
+            if method == 'zscore':
+                mean = np.mean(values)
+                std = np.std(values)
+                if std > 0:
+                    z_scores = np.abs((values - mean) / std)
+                    outlier_mask[value_indices[z_scores > sigma_threshold]] = True
             
-        elif method == 'iqr':
-            Q1 = np.percentile(valid_features, 25, axis=0)
-            Q3 = np.percentile(valid_features, 75, axis=0)
-            IQR = Q3 - Q1
-            outliers_valid = np.any(
-                (valid_features < (Q1 - 1.5 * IQR)) | 
-                (valid_features > (Q3 + 1.5 * IQR)), axis=1
-            )
-            
-        elif method == 'dbscan':
-            scaler = StandardScaler()
-            scaled_features = scaler.fit_transform(valid_features)
-            
-            clustering = DBSCAN(eps=0.5, min_samples=2).fit(scaled_features)
-            outliers_valid = clustering.labels_ == -1
-            
-        else:  # isolation_forest (requires sklearn)
-            try:
-                from sklearn.ensemble import IsolationForest
-                iso_forest = IsolationForest(contamination=contamination, random_state=42)
-                outliers_valid = iso_forest.fit_predict(valid_features) == -1
-            except ImportError:
-                # Fallback to z-score method
-                z_scores = np.abs(stats.zscore(valid_features, axis=0))
-                outliers_valid = np.any(z_scores > 2.5, axis=1)
-        
-        # Map back to original indices
-        outlier_mask[valid_mask] = outliers_valid
+            elif method == 'iqr':
+                Q1 = np.percentile(values, 25)
+                Q3 = np.percentile(values, 75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outlier_mask[value_indices[(values < lower_bound) | (values > upper_bound)]] = True
         
         return outlier_mask
+    
+    def trace_similarity_screening(self, trials, kept_mask, correlation_threshold=0.6):
+        """
+        Perform similarity-based outlier detection using correlation.(can inherit from statistical screening)
+        Correlation with the mean trace of kept trials.
+        """
+        n_trials = len(trials)
+        outlier_mask = np.zeros(n_trials, dtype=bool)
+        correlations = np.full(n_trials, np.nan)
+        kept_trials = [trials[i] for i in range(n_trials) if kept_mask[i]]
+
+        if len(kept_trials) < 3:
+            # if kept trials are less than 3, retain all trials
+            return outlier_mask, correlations
+        
+        kept_traces = []
+        min_length = min(len(trial['deltaFoverF_0']) for trial in kept_trials)
+
+        # ensure all traces are of the same length
+        for trial in kept_trials:
+            trial_trace = trial['deltaFoverF_0'][:min_length]
+            kept_traces.append(trial_trace)
+
+        average_trace = np.mean(kept_traces, axis=0)
+        for i, trial in enumerate(trials):
+            trace = trial['deltaFoverF_0'][:min_length]
+
+            if np.std(trace) > 0 and np.std(average_trace) > 0:
+                corr = np.corrcoef(trace, average_trace)[0, 1]
+                correlations[i] = corr
+                if corr < correlation_threshold or not kept_mask[i]:
+                    outlier_mask[i] = True
+            else:
+                outlier_mask[i] = True
+                correlations[i] = 0.0
+
+        # validate if correlation is higher after correcting outliers
+
+
+        return outlier_mask, correlations
+        
     
     def filter_consistent_responses(self, min_trials=3, max_outlier_ratio=0.3):
         """
