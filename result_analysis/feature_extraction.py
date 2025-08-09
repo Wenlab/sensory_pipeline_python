@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import ttest_rel
+from scipy.stats import ttest_ind
 from scipy.stats import linregress
 from scipy.signal import find_peaks
 
@@ -121,14 +121,7 @@ class ResponseFeatureExtraction:
         response_type = {}
         slope_threshold = np.std(baseline_segment) * 0.05
 
-        # downsample to match lengths
-        def downsample(segment, target_length):
-            if len(segment) == target_length:
-                return segment
-            indices = np.linspace(0, len(segment) - 1, target_length).astype(int)
-            return segment[indices]
-        
-        # get slop of a segment
+        # get slope of a segment
         def segment_slope(segment):
             if len(segment) < 2:
                 return 0
@@ -138,21 +131,13 @@ class ResponseFeatureExtraction:
         
         # Significance test (stimulus fist and post-stimulus second)
         if len(stimulus_segment) > 1 and len(baseline_segment) > 1 :
-            min_length = min(len(baseline_segment), len(stimulus_segment))
-
-            baseline_segment = downsample(baseline_segment, min_length)
-            stimulus_segment = downsample(stimulus_segment, min_length)
-            p_stim = ttest_rel(baseline_segment, stimulus_segment).pvalue
+            _, p_stim = ttest_ind(baseline_segment, stimulus_segment, equal_var=False)
         
         else:
             p_stim = 1.0
         
         if p_stim >= 0.05 and len(post_stimulus_segment) > 1 and len(baseline_segment) > 1:
-            min_length = min(len(baseline_segment), len(post_stimulus_segment))
-
-            baseline_segment = downsample(baseline_segment, min_length)
-            post_stimulus_segment = downsample(post_stimulus_segment, min_length)
-            p_post = ttest_rel(baseline_segment, post_stimulus_segment).pvalue
+            _, p_post = ttest_ind(baseline_segment, post_stimulus_segment, equal_var=False)
         else:
             p_post = 1.0
 
