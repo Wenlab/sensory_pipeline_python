@@ -34,7 +34,7 @@ class BaselineCorrection:
             for stimulus, trials in stimuli_data.items():
                 corrected_trials = []
                 for trial in trials:
-                    original_trace = trial.get('delta_F_over_F', [])
+                    original_trace = trial.get('deltaFoverF_0', [])
                     corrected_trace, correct_factor = self.baseline_correction(
                         original_trace,
                         start_time=trial.get('start_time', 5)
