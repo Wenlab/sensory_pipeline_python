@@ -20,8 +20,14 @@ def save_to_hdf5(group, name, data):
         dset = group.create_dataset(name, data=data.cpu().numpy())
     elif isinstance(data, np.ndarray):
         dset = group.create_dataset(name, data=data)
+    elif isinstance(data, (np.integer, np.floating, np.complexfloating)):
+        # Handle numpy scalar types
+        dset = group.create_dataset(name, data=data)
     elif isinstance(data, (str, int, float, complex)):
         dset = group.create_dataset(name, data=data)
+    elif isinstance(data, bytes):
+        # Convert bytes to string for HDF5 compatibility
+        dset = group.create_dataset(name, data=data.decode('utf-8'))
     elif data is None:
         dset = group.create_dataset(name, shape=(0,))
     elif isinstance(data, dict):
@@ -37,7 +43,7 @@ def save_to_hdf5(group, name, data):
             for idx, item in enumerate(data):
                 save_to_hdf5(dset, str(idx), item)
     else:
-        raise TypeError("Unsupported data type")
+        raise TypeError(f"Unsupported data type: {type(data)}")
 
     # 为数据集添加原始数据类型的属性
     dset.attrs['data_type'] = data_type
