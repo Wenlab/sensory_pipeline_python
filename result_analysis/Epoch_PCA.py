@@ -17,13 +17,12 @@ class EpochPCA:
         self.time_points = None
         
         # Load compound information and color scheme
-        if config_path is None:
-            # Default path relative to the current file
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.join(current_dir, '..', 'data_load', 'config')
-        
-        self.compound_info = self._load_compound_info(config_path)
-        self.color_scheme = self._load_color_scheme(config_path)
+        if config_path is not None:
+            self.compound_info = self._load_compound_info(config_path)
+            self.color_scheme = self._load_color_scheme(config_path)
+        else:
+            self.compound_info = {}
+            self.color_scheme = {}
         
     def _load_compound_info(self, config_path):
         """Load compound information from JSON file."""
@@ -45,20 +44,20 @@ class EpochPCA:
             print(f"Warning: Could not load compound_color_scheme.json: {e}")
             return {}
         
-    def arrange_data(self, use_zscore=False, time_window=None, average_trials=True):
+    def arrange_data(self, time_window=None, average_trials=True, fill_missing_pairs=True):
         """
         Arrange data for PCA analysis.
         
         Parameters:
         -----------
-        use_zscore : bool, default=False
-            Whether to use z-scored data or deltaFoverF_0
         time_window : tuple, default=None
             Time window (start, end) in seconds relative to stimulus onset.
             If None, uses the full trial duration.
         average_trials : bool, default=False
             If True, average all trials for each stimulus to get one sample per stimulus.
             If False, keep each trial as a separate sample.
+        fill_missing_pairs : bool, default=True
+            If True, fill missing neuron-stimulus pairs with symmetric neurons.
             
         Returns:
         --------
@@ -72,42 +71,57 @@ class EpochPCA:
         """
         
         # Get all neuron names and stimulus names
+        all_neurons, all_stimuli = self._get_neurons_and_stimuli()
+        print(f"Found {len(all_neurons)} neurons and {len(all_stimuli)} stimuli")
+        
+        # Determine common time grid
+        self.time_points = self._determine_time_grid(all_neurons, all_stimuli, time_window)
+        
+        # Collect and process data
+        samples, labels = self._collect_and_process_data(all_neurons, all_stimuli, average_trials)
+        
+        self.arranged_data = np.array(samples)
+        self.stimulus_labels = labels
+        self.neuron_names = all_neurons
+        
+        # Fill missing neuron-stimulus pairs if requested
+        if fill_missing_pairs:
+            self.fill_blank_neuron_stimuli_pair()
+        
+        self._print_arrangement_summary(average_trials, labels)
+        
+        return self.arranged_data, self.stimulus_labels
+    
+    def _get_neurons_and_stimuli(self):
+        """Get all neuron names and stimulus names from the data."""
         all_neurons = list(self.data.keys())
         all_stimuli = set()
         for neuron_data in self.data.values():
             all_stimuli.update(neuron_data.keys())
         all_stimuli = sorted(list(all_stimuli))
-        
-        print(f"Found {len(all_neurons)} neurons and {len(all_stimuli)} stimuli")
-        
-        # Collect all trials and determine time grid
-        all_trials = []
+        return all_neurons, all_stimuli
+    
+    def _determine_time_grid(self, all_neurons, all_stimuli, time_window):
+        """Determine the common time grid for all trials."""
         time_grids = []
         
+        # Collect all time grids
         for neuron_name in all_neurons:
             for stimulus_name in all_stimuli:
                 if stimulus_name in self.data[neuron_name]:
                     trials = self.data[neuron_name][stimulus_name]
                     for trial in trials:
-                        # Get the appropriate data field
-                        if use_zscore and trial.get("z_scored") is not None:
-                            trace_data = trial["z_scored"]
-                        else:
-                            trace_data = trial["deltaFoverF_0"]
-                        
-                        # Create time grid for this trial
+                        trace_data = trial["deltaFoverF_0"]
                         start_time = 0
-                        end_time = len(trace_data)-1
+                        end_time = len(trace_data) - 1
                         n_points = len(trace_data)
                         time_grid = np.linspace(start_time, end_time, n_points)
                         time_grids.append(time_grid)
         
         # Determine common time grid
         if time_window is not None:
-            # Use specified time window
             min_time, max_time = time_window
         else:
-            # Use the intersection of all time ranges
             min_time = max([tg[0] for tg in time_grids])
             max_time = min([tg[-1] for tg in time_grids])
         
@@ -117,119 +131,216 @@ class EpochPCA:
             valid_indices = (tg >= min_time) & (tg <= max_time)
             max_points = max(max_points, np.sum(valid_indices))
         
-        # Create uniform time grid
-        self.time_points = np.linspace(min_time, max_time, max_points)
+        time_points = np.linspace(min_time, max_time, max_points)
         print(f"Using time window: {min_time:.2f} to {max_time:.2f} seconds with {max_points} time points")
         
-        # Collect and interpolate data
+        return time_points
+    
+    def _collect_and_process_data(self, all_neurons, all_stimuli, average_trials):
+        """Collect and process trial data into feature vectors."""
         samples = []
         labels = []
         
         for stimulus_name in all_stimuli:
-            stimulus_samples = []
+            stimulus_samples = self._collect_stimulus_trials(stimulus_name, all_neurons)
             
-            # Collect all trials for this stimulus across all neurons
-            for neuron_name in all_neurons:
-                if stimulus_name in self.data[neuron_name]:
-                    trials = self.data[neuron_name][stimulus_name]
-                    
-                    for trial in trials:
-                        # Get the appropriate data field
-                        if use_zscore and trial.get("z_scored") is not None:
-                            trace_data = trial["z_scored"]
-                        else:
-                            trace_data = trial["deltaFoverF_0"]
-                        
-                        # Create time grid for this trial
-                        start_time = 0
-                        end_time = len(trace_data) - 1
-                        n_points = len(trace_data)
-                        trial_time_grid = np.linspace(start_time, end_time, n_points)
-                        
-                        # Find the trial identifier
-                        trial_id = f"{trial['worm_key']}_{trial['segment_index']}_{trial['date']}"
-                        
-                        # Check if we already have this trial
-                        existing_trial = None
-                        for sample in stimulus_samples:
-                            if sample['trial_id'] == trial_id:
-                                existing_trial = sample
-                                break
-                        
-                        if existing_trial is None:
-                            # Create new trial entry
-                            trial_sample = {
-                                'trial_id': trial_id,
-                                'neuron_data': {},
-                                'stimulus': stimulus_name
-                            }
-                            stimulus_samples.append(trial_sample)
-                            existing_trial = trial_sample
-                        
-                        # Interpolate trace to common time grid
-                        # Only use points within the time window
-                        valid_indices = (trial_time_grid >= min_time) & (trial_time_grid <= max_time)
-                        valid_time = trial_time_grid[valid_indices]
-                        valid_trace = np.array(trace_data)[valid_indices]
-                        
-                        if len(valid_time) > 1:
-                            interpolated_trace = np.interp(self.time_points, valid_time, valid_trace)
-                        else:
-                            # If only one or no valid points, use the mean or zero
-                            interpolated_trace = np.full(len(self.time_points), 
-                                                        np.mean(valid_trace) if len(valid_trace) > 0 else 0)
-                        
-                        existing_trial['neuron_data'][neuron_name] = interpolated_trace
-            
-            # Convert to feature vectors (concatenate all neurons for each trial)
             if average_trials:
-                # Average all trials for this stimulus
-                if stimulus_samples:
-                    # Collect all feature vectors for this stimulus
-                    stimulus_feature_vectors = []
-                    for trial_sample in stimulus_samples:
-                        feature_vector = []
-                        for neuron_name in all_neurons:
-                            if neuron_name in trial_sample['neuron_data']:
-                                feature_vector.extend(trial_sample['neuron_data'][neuron_name])
-                            else:
-                                # Fill with zeros if neuron data is missing for this trial
-                                feature_vector.extend(np.zeros(len(self.time_points)))
-                        stimulus_feature_vectors.append(feature_vector)
-                    
-                    # Average across all trials for this stimulus
-                    if stimulus_feature_vectors:
-                        mean_feature_vector = np.mean(stimulus_feature_vectors, axis=0)
-                        samples.append(mean_feature_vector)
-                        labels.append(stimulus_name)
+                samples, labels = self._process_averaged_trials(stimulus_samples, stimulus_name, 
+                                                              all_neurons, samples, labels)
             else:
-                # Keep individual trials as separate samples
-                for trial_sample in stimulus_samples:
-                    feature_vector = []
-                    for neuron_name in all_neurons:
-                        if neuron_name in trial_sample['neuron_data']:
-                            feature_vector.extend(trial_sample['neuron_data'][neuron_name])
-                        else:
-                            # Fill with zeros if neuron data is missing for this trial
-                            feature_vector.extend(np.zeros(len(self.time_points)))
+                samples, labels = self._process_individual_trials(stimulus_samples, all_neurons, 
+                                                                samples, labels)
+        
+        return samples, labels
+    
+    def _collect_stimulus_trials(self, stimulus_name, all_neurons):
+        """Collect all trials for a given stimulus across all neurons."""
+        stimulus_samples = []
+        
+        for neuron_name in all_neurons:
+            if stimulus_name in self.data[neuron_name]:
+                trials = self.data[neuron_name][stimulus_name]
+                
+                for trial in trials:
+                    trace_data = trial["deltaFoverF_0"]
+                    trial_id = f"{trial['worm_key']}_{trial['segment_index']}_{trial['date']}"
                     
-                    samples.append(feature_vector)
-                    labels.append(stimulus_name)
+                    # Check if we already have this trial
+                    existing_trial = self._find_existing_trial(stimulus_samples, trial_id)
+                    
+                    if existing_trial is None:
+                        trial_sample = {
+                            'trial_id': trial_id,
+                            'neuron_data': {},
+                            'stimulus': stimulus_name
+                        }
+                        stimulus_samples.append(trial_sample)
+                        existing_trial = trial_sample
+                    
+                    # Interpolate trace to common time grid
+                    interpolated_trace = self._interpolate_trace(trace_data)
+                    existing_trial['neuron_data'][neuron_name] = interpolated_trace
         
-        self.arranged_data = np.array(samples)
-        self.stimulus_labels = labels
-        self.neuron_names = all_neurons
+        return stimulus_samples
+    
+    def _find_existing_trial(self, stimulus_samples, trial_id):
+        """Find existing trial in stimulus samples."""
+        for sample in stimulus_samples:
+            if sample['trial_id'] == trial_id:
+                return sample
+        return None
+    
+    def _interpolate_trace(self, trace_data):
+        """Interpolate a single trace to the common time grid."""
+        start_time = 0
+        end_time = len(trace_data) - 1
+        n_points = len(trace_data)
+        trial_time_grid = np.linspace(start_time, end_time, n_points)
         
+        min_time, max_time = self.time_points[0], self.time_points[-1]
+        valid_indices = (trial_time_grid >= min_time) & (trial_time_grid <= max_time)
+        valid_time = trial_time_grid[valid_indices]
+        valid_trace = np.array(trace_data)[valid_indices]
+        
+        if len(valid_time) > 1:
+            interpolated_trace = np.interp(self.time_points, valid_time, valid_trace)
+        else:
+            interpolated_trace = np.full(len(self.time_points), 
+                                       np.mean(valid_trace) if len(valid_trace) > 0 else 0)
+        
+        return interpolated_trace
+    
+    def _process_averaged_trials(self, stimulus_samples, stimulus_name, all_neurons, samples, labels):
+        """Process stimulus samples by averaging trials."""
+        if stimulus_samples:
+            stimulus_feature_vectors = []
+            for trial_sample in stimulus_samples:
+                feature_vector = self._create_feature_vector(trial_sample, all_neurons)
+                stimulus_feature_vectors.append(feature_vector)
+            
+            if stimulus_feature_vectors:
+                mean_feature_vector = np.mean(stimulus_feature_vectors, axis=0)
+                samples.append(mean_feature_vector)
+                labels.append(stimulus_name)
+        
+        return samples, labels
+    
+    def _process_individual_trials(self, stimulus_samples, all_neurons, samples, labels):
+        """Process stimulus samples keeping individual trials."""
+        for trial_sample in stimulus_samples:
+            feature_vector = self._create_feature_vector(trial_sample, all_neurons)
+            samples.append(feature_vector)
+            labels.append(trial_sample['stimulus'])
+        
+        return samples, labels
+    
+    def _create_feature_vector(self, trial_sample, all_neurons):
+        """Create feature vector by concatenating all neuron data for a trial."""
+        feature_vector = []
+        for neuron_name in all_neurons:
+            if neuron_name in trial_sample['neuron_data']:
+                feature_vector.extend(trial_sample['neuron_data'][neuron_name])
+            else:
+                feature_vector.extend(np.zeros(len(self.time_points)))
+        return feature_vector
+    
+    def _print_arrangement_summary(self, average_trials, labels):
+        """Print summary of data arrangement."""
         print(f"Arranged data shape: {self.arranged_data.shape}")
         if average_trials:
             print(f"Data represents averaged responses for {len(set(labels))} stimuli")
             print(f"Stimuli: {sorted(set(labels))}")
         else:
             print(f"Number of samples per stimulus: {dict(pd.Series(labels).value_counts())}")
-        
-        return self.arranged_data, self.stimulus_labels
     
-    def perform_pca(self, n_components=None, standardize=True):
+    def fill_blank_neuron_stimuli_pair(self):
+        """
+        Fill in blank neuron-stimuli pairs with data from symmetric neurons.
+        For example, AWCL and AWCR are anatomically symmetric pairs.
+        """
+        if self.arranged_data is None:
+            print("Warning: No arranged data found. Run arrange_data() first.")
+            return
+        
+        # Create neuron-stimulus mapping for easier access
+        n_neurons = len(self.neuron_names)
+        n_timepoints = len(self.time_points)
+        n_samples = self.arranged_data.shape[0]
+        
+        # Reshape data to (n_samples, n_neurons, n_timepoints) for easier manipulation
+        data_reshaped = self.arranged_data.reshape(n_samples, n_neurons, n_timepoints)
+        
+        filled_pairs = 0
+        
+        for sample_idx in range(n_samples):
+            for neuron_idx in range(n_neurons):
+                # Check if this neuron-stimulus pair is all zeros (missing data)
+                if np.all(data_reshaped[sample_idx, neuron_idx, :] == 0):
+                    neuron_name = self.neuron_names[neuron_idx]
+                    symmetric_neuron_idx = self._find_symmetric_neuron_index(neuron_name)
+                    
+                    if symmetric_neuron_idx is not None:
+                        # Copy data from symmetric neuron if it exists and is not zero
+                        symmetric_data = data_reshaped[sample_idx, symmetric_neuron_idx, :]
+                        if not np.all(symmetric_data == 0):
+                            data_reshaped[sample_idx, neuron_idx, :] = symmetric_data
+                            filled_pairs += 1
+                            print(f"Filled {neuron_name} with data from {self.neuron_names[symmetric_neuron_idx]} "
+                                  f"for sample {sample_idx} (stimulus: {self.stimulus_labels[sample_idx]})")
+        
+        # Reshape back to original format
+        self.arranged_data = data_reshaped.reshape(n_samples, n_neurons * n_timepoints)
+        
+        print(f"Filled {filled_pairs} blank neuron-stimulus pairs with symmetric neuron data.")
+    
+    def _find_symmetric_neuron_index(self, neuron_name):
+        """
+        Find the index of the symmetric neuron for a given neuron name.
+        
+        Parameters:
+        -----------
+        neuron_name : str
+            Name of the neuron to find symmetric pair for
+            
+        Returns:
+        --------
+        int or None
+            Index of symmetric neuron, or None if not found
+        """
+        # Define symmetric neuron pairs
+        symmetric_pairs = {
+            # Left-Right pairs
+            'AWCL': 'AWCR',
+            'AWCR': 'AWCL',
+            'ASEL': 'ASER',
+            'ASER': 'ASEL',
+            'AWBL': 'AWBR',
+            'AWBR': 'AWBL',
+            'AWAL': 'AWAR',
+            'AWAR': 'AWALA',
+            'ASHL': 'ASHR',
+            'ASHR': 'ASHL',
+            'ASKL': 'ASKR',
+            'ASKR': 'ASKL',
+            'ADFL': 'ADFR',
+            'ADFR': 'ADFL',
+            'ASIL': 'ASIR',
+            'ASIR': 'ASIL',
+            'ASJL': 'ASJR',
+            'ASJR': 'ASJL',
+            'AWAL': 'AWAR',
+            'AWAR': 'AWAL',
+            # Add more pairs as needed based on your neuron dataset
+        }
+        
+        symmetric_name = symmetric_pairs.get(neuron_name)
+        if symmetric_name and symmetric_name in self.neuron_names:
+            return self.neuron_names.index(symmetric_name)
+        
+        return None
+
+    
+    def perform_pca(self, n_components=None, center_data=True):
         """
         Perform PCA on the arranged data.
         
@@ -237,8 +348,9 @@ class EpochPCA:
         -----------
         n_components : int, default=None
             Number of principal components to compute. If None, compute all.
-        standardize : bool, default=True
-            Whether to standardize features before PCA
+        center_data : bool, default=True
+            Whether to center features (subtract mean) before PCA. 
+            This centers the data without scaling by standard deviation.
             
         Returns:
         --------
@@ -249,14 +361,15 @@ class EpochPCA:
         if self.arranged_data is None:
             raise ValueError("Data not arranged yet. Call arrange_data() first.")
         
-        # Standardize data if requested
-        if standardize:
-            scaler = StandardScaler()
-            data_for_pca = scaler.fit_transform(self.arranged_data)
-            self.scaler = scaler
+        # Center data if requested (subtract mean without scaling by std)
+        if center_data:
+            # Calculate mean for each feature
+            feature_means = np.mean(self.arranged_data, axis=0)
+            data_for_pca = self.arranged_data - feature_means
+            self.feature_means = feature_means
         else:
             data_for_pca = self.arranged_data
-            self.scaler = None
+            self.feature_means = None
         
         # Perform PCA
         if n_components is None:
@@ -273,7 +386,7 @@ class EpochPCA:
             'cumulative_variance_ratio': np.cumsum(pca.explained_variance_ratio_),
             'components': pca.components_,
             'n_components': n_components,
-            'standardized': standardize
+            'data_centered': center_data
         }
         
         print(f"PCA completed with {n_components} components")
@@ -577,7 +690,7 @@ class EpochPCA:
                 'cumulative_variance_ratio': self.pca_results['cumulative_variance_ratio'],
                 'components': self.pca_results['components'],
                 'n_components': self.pca_results['n_components'],
-                'standardized': self.pca_results['standardized']
+                'data_centered': self.pca_results['data_centered']
             }
         }
         
@@ -607,15 +720,13 @@ class EpochPCA:
         print(f"Data shape: {self.arranged_data.shape}")
         print(f"Number of components: {self.pca_results['n_components']}")
     
-    def get_stimulus_averaged_responses(self, use_zscore=False, time_window=None, 
+    def get_stimulus_averaged_responses(self, time_window=None, 
                                       include_stats=True):
         """
         Get averaged responses for each stimulus with optional statistics.
         
         Parameters:
         -----------
-        use_zscore : bool, default=False
-            Whether to use z-scored data or deltaFoverF_0
         time_window : tuple, default=None
             Time window (start, end) in seconds relative to stimulus onset
         include_stats : bool, default=True
@@ -633,7 +744,7 @@ class EpochPCA:
         """
         
         # First arrange data without averaging to collect all trials
-        self.arrange_data(use_zscore=use_zscore, time_window=time_window, 
+        self.arrange_data(time_window=time_window, 
                          average_trials=False)
         
         all_neurons = self.neuron_names
@@ -681,7 +792,7 @@ class EpochPCA:
         return stimulus_responses
     
     def plot_stimulus_averaged_heatmap(self, stimulus_responses=None, 
-                                     use_zscore=False, time_window=None,
+                                     time_window=None,
                                      figsize=(15, 10), show_sem=True):
         """
         Plot heatmap of averaged stimulus responses.
@@ -690,8 +801,6 @@ class EpochPCA:
         -----------
         stimulus_responses : dict, default=None
             Pre-computed stimulus responses. If None, will compute them.
-        use_zscore : bool, default=False
-            Whether to use z-scored data (only used if stimulus_responses is None)
         time_window : tuple, default=None
             Time window for analysis (only used if stimulus_responses is None)
         figsize : tuple, default=(15, 10)
@@ -702,7 +811,7 @@ class EpochPCA:
         
         if stimulus_responses is None:
             stimulus_responses = self.get_stimulus_averaged_responses(
-                use_zscore=use_zscore, time_window=time_window, include_stats=True
+                time_window=time_window, include_stats=True
             )
         
         stimuli = sorted(stimulus_responses.keys())
@@ -769,29 +878,28 @@ def example_usage():
     # APPROACH 1: Individual trials as samples (default)
     # This keeps each trial as a separate sample - good for understanding trial-to-trial variability
     # arranged_data, stimulus_labels = pca_analyzer.arrange_data(
-    #     use_zscore=True, 
     #     time_window=(-1, 5),
-    #     average_trials=False  # Keep individual trials
+    #     average_trials=False,  # Keep individual trials
+    #     fill_missing_pairs=True  # Fill missing data with symmetric neurons
     # )
     
     # APPROACH 2: Averaged stimulus responses as samples (RECOMMENDED for tea compounds)
     # This averages all trials for each stimulus - good for comparing stimulus types
     # arranged_data, stimulus_labels = pca_analyzer.arrange_data(
-    #     use_zscore=True, 
     #     time_window=(-1, 5),
-    #     average_trials=True  # Average trials per stimulus
+    #     average_trials=True,  # Average trials per stimulus
+    #     fill_missing_pairs=True  # Fill missing data with symmetric neurons
     # )
     
     # APPROACH 3: Get detailed stimulus-averaged responses with statistics
     # stimulus_responses = pca_analyzer.get_stimulus_averaged_responses(
-    #     use_zscore=True, 
     #     time_window=(-1, 5),
     #     include_stats=True
     # )
     # pca_analyzer.plot_stimulus_averaged_heatmap(stimulus_responses)
     
     # Perform PCA (same regardless of approach)
-    # pca_results = pca_analyzer.perform_pca(n_components=20, standardize=True)
+    # pca_results = pca_analyzer.perform_pca(n_components=20, center_data=True)
     
     # Plot results with compound names and colors
     # pca_analyzer.plot_explained_variance()
@@ -818,5 +926,31 @@ def example_usage():
     # Save results
     # pca_analyzer.save_results('pca_results.npz')
     
-    pass
 
+if __name__ == "__main__":
+    import sys
+    import os
+    import json
+    
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from utils.HDF5_load import load_h5file
+    neuron_segments_dict = load_h5file(
+            path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
+            root_name= 'neuron_segments_dict')
+    from result_analysis.baseline_correction import BaselineCorrection
+    neuron_segments_dict_correct = BaselineCorrection(neuron_segments_dict)
+    neuron_segments_dict_correct.apply_baseline_correction()
+    neuron_segments_dict = neuron_segments_dict_correct.corrected_data
+    pca_analyzer = EpochPCA(neuron_segments_dict, 
+                            config_path=r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config')
+    pca_analyzer.arrange_data(time_window=None, average_trials=True, fill_missing_pairs=True)
+    pca_analyzer.perform_pca(n_components=10, center_data=True)
+    pca_analyzer.plot_explained_variance()
+    pca_analyzer.plot_pca_scatter(
+        pc_x=1, pc_y=2, 
+        use_compound_names=True,  # Use compound names instead of codes
+        show_legend=True
+    )
+    pca_analyzer.plot_pca_scatter(pc_x=1, pc_y=3, use_compound_names=True)
+    # pca_analyzer.plot_pca_scatter(pc_x=2, pc_y=3, use_compound_names=True)
+    contributions = pca_analyzer.get_component_contributions(component_idx=0, top_n=10)
