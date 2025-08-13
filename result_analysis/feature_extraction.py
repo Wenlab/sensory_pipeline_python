@@ -1,3 +1,9 @@
+# Configure OpenMP to handle duplicate library warnings
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.openmp_config import configure_openmp
+
 import numpy as np
 from scipy.stats import ttest_ind
 from scipy.stats import linregress
@@ -240,3 +246,35 @@ class ResponseFeatureExtraction:
                     })
                     trial_features.append(features)
                 self.features[neuron_name][stimulus_name] = trial_features
+
+if __name__ == "__main__":
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    from utils.HDF5_load import load_h5file
+    neuron_segments_dict = load_h5file(
+        path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
+        root_name= 'neuron_segments_dict')
+    from result_analysis.baseline_correction import BaselineCorrection
+    neuron_segments_dict_correct = BaselineCorrection(neuron_segments_dict)
+    neuron_segments_dict_correct.apply_baseline_correction()
+    neuron_segments_dict = neuron_segments_dict_correct.corrected_data
+    analyzer = ResponseFeatureExtraction(neuron_segments_dict)
+    analyzer.extract_all_features()
+    # print features into a text file
+    import json
+    class NpEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.bool_):
+                return bool(obj)
+            # 可选：支持更多类型
+            return super().default(obj)
+    with open('output.json', 'w', encoding='utf-8') as f:
+        json.dump(analyzer.features, f, cls=NpEncoder, ensure_ascii=False, indent=4)
