@@ -40,7 +40,7 @@ def load_worm_data_dict(
     biologicalID = worm[key]['biological'].to_numpy()
     
     modified_ID = [
-        id_value if isinstance(id_value, str) and id_value.startswith('A') else f'{index}'
+        id_value if isinstance(id_value, str) and not id_value.isdigit() else f'{index}'
         for index, id_value in enumerate(biologicalID)
     ]
     modified_ID_df = pd.DataFrame(modified_ID)
