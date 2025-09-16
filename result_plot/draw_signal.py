@@ -1,7 +1,3 @@
-# if __name__ == "__main__":
-#     h5_path = r"I:\WJH\0628_LYP\w1\pixel_intensity.h5"
-#     save_folder = r"I:\WJH\0628_LYP\w1\plot"
-#     labjack_excel_path = r"I:\WJH\0628_LYP\Labjack\output_volumes.xlsx"
 #%%
 import os
 import h5py
@@ -12,14 +8,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from tqdm import tqdm
 import sys
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import pdist
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.HDF5_load import load_h5file
+from utils.HDF5Toolkit import load_h5file
+from utils.get_symmetric_neuron import get_symmetric_neuron
+from utils.parse_stimulus_info import group_and_sort_stimuli
 from data_load.get_stimulus_info import *
 from data_load.curve_fit import calculate_delta_F_over_F0
 from data_load.load_worm_data import load_worm_ID
 from result_plot.visweb import generate_compound_color_scheme
+import seaborn as sns
 #%%
 def load_intensity_and_dID(h5_file_path, root_name=None):
     """
@@ -127,11 +128,12 @@ def plot_neuron_signals(
     y_max = np.percentile(intensity_wo_nan, 100)  # 99 percentile for upper bound
 
     # Automatically assign colors to different stimulus types
-    stimulus_color_dict = {}
+    if stimulus_color_dict is None:
+        stimulus_color_dict = {}
     legend_dict = {}
     
     if stimulus_list is not None:
-        if stimulus_color_dict is not None:
+        if not stimulus_color_dict:
             stimulus_color_dict = generate_compound_color_scheme(stimulus_list)
 
 
@@ -205,7 +207,7 @@ def plot_neuron_signals(
             cur_ax.set_xticks(x_ticks)
             cur_ax.set_xticklabels([f"{int(x)}" for x in x_ticks], rotation=45)
             # Check if neuron_id is a numeric string that equals i
-            if (isinstance(neuron_id, str) and neuron_id.isdigit() and int(neuron_id) == i) or (isinstance(neuron_id, (int, np.integer)) and neuron_id == i):
+            if (isinstance(neuron_id, str) and neuron_id.isdigit() and int(neuron_id) == i) or (isinstance(neuron_id, (int, float, np.integer, np.floating)) and int(neuron_id) == i):
                 cur_ax.set_title(f"Neuron {i}")
             else:
                 cur_ax.set_title(f"{i} --Neuron {neuron_id}")
@@ -421,8 +423,333 @@ def draw_trend_signal(h5_file_path, save_folder, exp_name, root_name=None,
     print(f"dfof signal plot saved to {file_name}")
 
     return
-    
 
+#%%
+def transfer_dict2dataframe(neuron_segments_dict):
+    """
+    convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
+    """ 
+    data_list = []
+    for neuron_name, stimuli_data in neuron_segments_dict.items():
+        for stimulus_type, segments in stimuli_data.items():
+                for segment in segments:
+                    delta_F_over_F0 = np.array(segment['deltaFoverF_0'])
+                    time_points = len(delta_F_over_F0)
+
+                    for t, dff in zip(range(time_points), delta_F_over_F0):
+                        data_list.append({
+                            'neuron': neuron_name,
+                            'stimulus': stimulus_type,
+                            'time_point': t,
+                            'delta_F_over_F0': dff,
+                            'worm_key': segment.get('worm_key', 'unknown'),
+                            'segment_index': segment.get('segment_index', 'unknown'),
+                            'date': segment.get('date', 'unknown')
+                        })
+
+    df = pd.DataFrame(data_list)
+    return df
+
+
+def relplot_mean_signal(neuron_segments_df, 
+                        height=2, 
+                        aspect=2, 
+                        col_wrap=2,
+                        kind='line',
+                        errorbar='se',
+                        stimulus_color_map=None,
+                        stimulus_info_dict=None,
+                        save_path=None,
+                        **kwargs):
+        """
+        Plot mean signal trends for each neuron and stimulus type using seaborn's relplot.
+        
+        Args:
+            height (float, optional): Height of each facet. Default is 2.
+            aspect (float, optional): Aspect ratio of each facet. Default is 2.
+            col_wrap (int, optional): Number of columns to wrap the facets. Default is 2.
+            kind (str, optional): Type of plot to draw. Default is 'line'.
+            errorbar (str or callable, optional): Error bar type. Default is 'se' (standard error).
+            save_path (str, optional): Path to save the plot. If None, the plot is not saved.
+            **kwargs: Additional keyword arguments passed to seaborn's relplot.
+        """
+        g = sns.relplot(
+            data=neuron_segments_df,
+            x='time_point',
+            y='delta_F_over_F0',
+            col='neuron',
+            hue='stimulus',
+            palette= stimulus_color_map,
+            kind=kind,
+            errorbar=errorbar,
+            height=height,
+            aspect=aspect,
+            col_wrap=col_wrap,
+            **kwargs
+        )
+        for ax in g.axes.flat:
+            ax.axvline(x=5, color='orange', linestyle='--', label='Stimulus Onset')
+            ax.axvline(x=15, color='gray', linestyle='--', label='Stimulus Offset')
+
+        g.figure.suptitle('')
+        g.set_axis_labels('Time(s)', 'ΔF/F0')
+        g.set_xlabels('Time(s)')
+        g.set_ylabels('ΔF/F0')
+        g.set_titles('{col_name}')
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(save_path.replace('.png', '.pdf'), dpi=300, bbox_inches='tight')
+            plt.close()
+        
+        return g
+
+    
+def draw_mean_signal_cluster(neuron_segments_df,
+                             vertical_overlap=0.5,
+                             fig_width=12,
+                             fig_height_per_neuron = 1.5,
+                             stimulus_info_dict=None,
+                             save_folder=None,
+                             plot_covariance=True
+                             ):
+    all_neurons = sorted(neuron_segments_df['neuron'].unique())
+    # Group and sort stimuli by concentration
+    if stimulus_info_dict:
+        grouped_stimuli = group_and_sort_stimuli(stimulus_info_dict)
+        # Flatten to get ordered stimulus list
+        stimulus_types = []
+        for compound_name, stimulus_codes in grouped_stimuli:
+            stimulus_types.extend(stimulus_codes)
+        
+        # Filter to only include stimuli that exist in the data
+        available_stimuli = set(neuron_segments_df['stimulus'].unique())
+        stimulus_types = [s for s in stimulus_types if s in available_stimuli]
+    else:
+        stimulus_types = sorted(neuron_segments_df['stimulus'].unique())
+        grouped_stimuli = [(s, [s]) for s in stimulus_types]  # Each stimulus as its own group
+
+
+    # cluster with the stimulus type with the stimulus type with most neurons responding
+    stimulus_neuron_counts = neuron_segments_df.groupby('stimulus')['neuron'].nunique()
+
+    # cluster_stimulus = stimulus_neuron_counts.idxmax()
+    cluster_stimulus = 'c4_6'
+    print(f"cluster based on {cluster_stimulus}")
+    df_cluster_stimulus = neuron_segments_df[neuron_segments_df['stimulus'] == cluster_stimulus]
+    if df_cluster_stimulus.empty:
+        print(f"No data available for stimulus type '{cluster_stimulus}' to perform clustering.")
+        neurons_in_cluster_order = all_neurons
+        missing_neurons_from_clustering = set(all_neurons)
+        return
+    else:
+        cluster_matrix_partial = df_cluster_stimulus.pivot_table(
+            index='neuron',
+            columns='time_point',
+            values='delta_F_over_F0',
+            aggfunc='mean'
+        )
+
+        time_columns = cluster_matrix_partial.columns
+        cluster_matrix_full = pd.DataFrame(index=all_neurons, columns=time_columns)
+
+        present_neurons = set(cluster_matrix_partial.index)
+        missing_neurons_from_clustering = set(all_neurons) - present_neurons
+
+        neurons_imputed_with_zeros = []
+
+        # Fill in the response_matrix with available data
+        for neuron in all_neurons:
+            if neuron in present_neurons:
+                cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[neuron]
+            else:
+                symmetric_neuron = get_symmetric_neuron(neuron)
+                if symmetric_neuron in present_neurons:
+                    cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[symmetric_neuron]
+                else:
+                    cluster_matrix_full.loc[neuron] = 0
+                    neurons_imputed_with_zeros.append(neuron)
+        
+        cluster_matrix_full = pd.to_numeric(cluster_matrix_full.stack(), errors='coerce').unstack().fillna(0).astype(float)
+
+        neurons_to_cluster = [n for n in all_neurons if n not in neurons_imputed_with_zeros]
+        if len(neurons_to_cluster) > 1:
+            matrix_for_clustering = cluster_matrix_full.loc[neurons_to_cluster]
+            distance_matrix = pdist(matrix_for_clustering, metric='correlation')
+            linkage_matrix = linkage(distance_matrix, method='ward')
+            cluster_order_indices = leaves_list(linkage_matrix)
+
+            clustered_part = matrix_for_clustering.index[cluster_order_indices].tolist()
+            neurons_in_cluster_order = clustered_part + neurons_imputed_with_zeros
+        else:
+            neurons_in_cluster_order = neurons_to_cluster + neurons_imputed_with_zeros
+    # calculate and plot co1variance matrix
+    covariance_matrix = None
+    n_dim = len(neurons_in_cluster_order)
+
+    if plot_covariance and save_folder:
+        ordered_matrix = cluster_matrix_full.loc[neurons_in_cluster_order]
+        covariance_matrix = np.cov(ordered_matrix.values)
+
+        plt.figure(figsize=(8, 6))
+        mask = np.triu(np.ones_like(covariance_matrix, dtype=bool), k=1)
+        sns.heatmap(covariance_matrix, 
+                    mask=mask,
+                    annot=False, 
+                    cmap='RdBu_r', 
+                    center=0,
+                    square=True,
+                    xticklabels=neurons_in_cluster_order,
+                    yticklabels=neurons_in_cluster_order,
+                    cbar_kws={'label': 'Covariance'})
+        
+        plt.title(f'Covariance Matrix (clustered by {cluster_stimulus})\nDimensions: {n_dim} x {n_dim}')
+        plt.xlabel('Neurons')
+        plt.ylabel('Neurons')
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+
+        # Save covariance heatmap
+        plt.savefig(f"{save_folder}/covariance_heatmap.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{save_folder}/covariance_heatmap.pdf", dpi=300, bbox_inches='tight')
+        plt.close()
+
+    # Calculate y_axis limits
+    grouped = neuron_segments_df.groupby(['neuron', 'stimulus'])
+    agg = grouped['delta_F_over_F0'].agg(['mean', 'sem']).reset_index()
+    global_y_min = (agg['mean'] - agg['sem']).min()
+    global_y_max = (agg['mean'] + agg['sem']).max()
+    padding = (global_y_max - global_y_min) * 0.1
+    global_y_min -= padding
+    global_y_max += padding
+    x_min = neuron_segments_df['time_point'].min()
+    x_max = neuron_segments_df['time_point'].max()
+
+
+    # PLOTTING
+    n_neurons = len(all_neurons)
+    n_stimuli = len(stimulus_types)
+
+    extra_bottom_space = 0.5
+    total_height = fig_height_per_neuron * (1 + (n_neurons - 1) * (1 - vertical_overlap))
+    fig = plt.figure(figsize=(fig_width, total_height))
+    fig.suptitle('')
+
+    subplot_width = 1 / n_stimuli
+    subplot_height = fig_height_per_neuron / total_height
+    bottom_offset = extra_bottom_space / total_height
+
+    for i, neuron in enumerate(neurons_in_cluster_order):
+        for j, stimulus in enumerate(stimulus_types):
+            left = j * subplot_width
+            bottom = bottom_offset + (n_neurons - i - 1) * (subplot_height * (1 - vertical_overlap))
+            ax = fig.add_axes([left, bottom, subplot_width, subplot_height])
+            ax.set_facecolor('none')
+
+            df_subset = neuron_segments_df[(neuron_segments_df['neuron']==neuron) & (neuron_segments_df['stimulus']==stimulus)]
+            if not df_subset.empty:
+                mean_trace = df_subset.groupby('time_point')['delta_F_over_F0'].mean()
+                if not mean_trace.empty:
+                    sem_trace = df_subset.groupby('time_point')['delta_F_over_F0'].sem()
+                    ax.plot(mean_trace.index, mean_trace.values, color='blue', zorder=10)
+                    ax.fill_between(mean_trace.index,
+                                    mean_trace.values - sem_trace.values,
+                                    mean_trace.values + sem_trace.values,
+                                    color='gray', alpha=0.3, zorder=9)
+            ax.axhline(y=0, color='black', linestyle=':', linewidth=1, alpha=0.5,zorder=1)
+            # remove spines and ticks
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_ylim(global_y_min, global_y_max)
+            ax.set_xlim(x_min, x_max)
+
+            ax.axvline(x=5, color='#E6A61C', linestyle='--', label='Stimulus Onset', linewidth=1.5, zorder=1)
+            ax.axvline(x=15, color='#76642E', linestyle='--', label='Stimulus Offset', linewidth=1.5, zorder=1)
+
+
+            if j == 0:
+                ax.text(-0.1, 0, neuron, transform=ax.transData, 
+                        rotation = 45, ha = 'right', va = 'center', fontsize=10)
+            else:
+                ax.spines['left'].set_visible(False)
+
+            # if i == n_neurons - 1:
+            #     # ax.spines['bottom'].set_visible(True)
+            #     # ax.set_xticks([5, 15])
+            #     # ax.set_xticklabels(['0', '10'])
+            #     ax.set_xlabel(stimulus, fontsize=10)
+    label_ax = fig.add_axes([0, 0, 1, bottom_offset])
+    label_ax.set_xlim(0, 1)
+    label_ax.set_ylim(0, 1)
+    label_ax.axis('off')
+    # Add concentration labels for each stimulus column
+    for j, stimulus in enumerate(stimulus_types):
+        x_center = (j + 0.5) / n_stimuli
+        
+        # Extract concentration from stimulus name
+        if stimulus_info_dict and stimulus in stimulus_info_dict:
+            full_name = stimulus_info_dict[stimulus]
+            # Extract concentration part
+            if ' E' in full_name:
+                conc_part = 'E' + full_name.split(' E')[1]
+            else:
+                parts = full_name.split()
+                conc_part = parts[-1] if len(parts) > 1 else stimulus
+        else:
+            conc_part = stimulus
+            
+        label_ax.text(x_center, 0.7, conc_part, ha='center', va='center', 
+                     fontsize=8, rotation=0)    
+
+    # Add tree brackets for compound groups
+    bracket_y = 0.4
+    bracket_height = 0.1
+    
+    current_pos = 0
+    for compound_name, stimulus_codes in grouped_stimuli:
+        # Only draw bracket if there are stimuli from this group in the plot
+        group_stimuli_in_plot = [s for s in stimulus_codes if s in stimulus_types]
+        if len(group_stimuli_in_plot) > 1:  # Only draw bracket if more than one stimulus
+            start_idx = stimulus_types.index(group_stimuli_in_plot[0])
+            end_idx = stimulus_types.index(group_stimuli_in_plot[-1])
+            
+            x_start = start_idx / n_stimuli
+            x_end = (end_idx + 1) / n_stimuli
+            
+            # Draw bracket
+            label_ax.plot([x_start, x_end], [bracket_y, bracket_y], 'k-', linewidth=1)
+            label_ax.plot([x_start, x_start], [bracket_y, bracket_y + bracket_height], 'k-', linewidth=1)
+            label_ax.plot([x_end, x_end], [bracket_y, bracket_y + bracket_height], 'k-', linewidth=1)
+            
+            # Add compound name
+            label_ax.text((x_start + x_end) / 2, bracket_y - 0.1, compound_name, 
+                         ha='center', va='top', fontsize=8, weight='bold')
+        elif len(group_stimuli_in_plot) == 1: # If only one stimulus, just add the name without bracket
+            idx = stimulus_types.index(group_stimuli_in_plot[0])
+            x_center = (idx + 0.5) / n_stimuli
+            label_ax.text(x_center, bracket_y - 0.1, compound_name, 
+                         ha='center', va='top', fontsize=8, weight='bold')
+            
+    if save_folder:
+        fig.savefig(f"{save_folder}/mean_signal.png", dpi=300, bbox_inches='tight')
+        fig.savefig(f"{save_folder}/mean_signal.pdf", dpi=300, bbox_inches='tight')
+    
+    # plt.show()
+    plt.close(fig)
+
+    return {
+        'covariance_matrix': covariance_matrix,
+        'neurons_in_cluster_order': neurons_in_cluster_order,
+        'n_dim': n_dim,
+        'cluster_stimulus': cluster_stimulus,
+        'stimulus_order': stimulus_types,
+        'grouped_stimuli': grouped_stimuli
+    }
 if __name__ == "__main__":
     # args = {
     #     "h5_file_path": h5_path,
@@ -440,47 +767,60 @@ if __name__ == "__main__":
     # # draw_raw_signal(**args)
     # draw_trend_signal(**args)
 
-    intensity_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250705\20250705.h5"
-    import h5py
-    from result_plot.draw_signal import *
-    with h5py.File(intensity_path, 'r') as f:
-        key_list = list(f.keys())
+    # for i in range(1, 19):
+    #     h5_path = fr"I:\WJH\0628_LYP\w{i}\pixel_intensity.h5"
+    #     save_folder = fr"I:\WJH\0628_LYP\w{i}\plot_sort"
+    #     labjack_excel_path = r"I:\WJH\0628_LYP\Labjack\output_volumes.xlsx"
+    #     trend_args = {
+    #         "h5_file_path": h5_path,
+    #         "save_folder": save_folder,
+    #         "exp_name": f"w{i}",
+    #         "date": "2024-06-28_LYP",
+    #         "labjack_excel_path": labjack_excel_path,
+    #         "stimulus_color_path": r"I:\WJH\0628_LYP\stimulus_color.json",
+    #         "n_cols": 2,
+    #         "row_height": 2.5,
+    #         "col_width": 10,
+    #         "xtick_num": 20,
+    #         "alpha": 0.7,
+    #         "ylabel": "deltaF/F_0"
+    #     }
+    #     draw_trend_signal(**trend_args)
+    #     raw_args = {
+    #         "h5_file_path": h5_path,
+    #         "save_folder": save_folder,
+    #         "exp_name": f"w{i}",
+    #         "date": "2024-06-28_LYP",
+    #         "labjack_excel_path": labjack_excel_path,
+    #         "stimulus_color_path": r"I:\WJH\0628_LYP\stimulus_color.json",
+    #         "n_cols": 2,
+    #         "row_height": 2.5,
+    #         "col_width": 10,
+    #         "xtick_num": 20,
+    #         "alpha": 0.7
+    #     }
+    #     draw_raw_signal(**raw_args)
 
-    labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250705\labjack\output_volumes.xlsx"
-    for key in ['w1']:
-        save_folder = fr"I:\WJH\flavor\raw_image\20250705\select\{key}"
-        trend_args = {
-            "h5_file_path": intensity_path,
-            "save_folder": save_folder,
-            "exp_name": f"{key}",
-            "root_name": key,
-            "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
-            "bi_ID_path": None,
-            "date": "20250705",
-            "labjack_excel_path": labjack_excel_path,
-            "n_cols": 2,
-            "row_height": 2.5,
-            "col_width": 10,
-            "xtick_num": 20,
-            "alpha": 0.7,
-            "ylabel": "deltaF/F_0",
-            "neurons_list": [1,2,3,5,7, 10, 12, 13, 16, 18,  19, 25, 26, 30, 31, 33]
-        }
-        draw_trend_signal(**trend_args)
-        raw_args = {
-            "h5_file_path": intensity_path,
-            "save_folder": save_folder,
-            "exp_name": f"{key}",
-            "root_name": key,
-            "odor_config_file": r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json",
-            "bi_ID_path": None,
-            "date": "20250705",
-            "labjack_excel_path": labjack_excel_path,
-            "n_cols": 2,
-            "row_height": 2.5,
-            "col_width": 10,
-            "xtick_num": 20,
-            "alpha": 0.7,
-            "neurons_list": [1,2,3,5,7, 10, 12, 13, 16, 18,  19, 25, 26, 30, 31, 33]
-        }
-        draw_raw_signal(**raw_args)
+    from utils.HDF5Toolkit import load_h5file
+    import json
+    with open(r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json")as f:
+        stimulus_info_dict = json.load(f)
+    neuron_segments_dict = load_h5file(r"I:\WJH\flavor\neuron_segments_dict_filter_corrected.h5", 'neuron_segments_dict')
+    neuron_segments_df = transfer_dict2dataframe(neuron_segments_dict)
+    save_folder = r"I:\WJH\flavor\plot"
+    os.makedirs(save_folder, exist_ok=True)
+    # relplot_mean_signal(neuron_segments_df, 
+    #                     height=2, 
+    #                     aspect=2, 
+    #                     col_wrap=2,
+    #                     kind='line',
+    #                     errorbar='se',
+    #                     stimulus_color_map=None,
+    #                     save_path=save_folder+f"/mean_signal.png")
+    plot_dict = draw_mean_signal_cluster(neuron_segments_df,
+                             vertical_overlap=0.4,
+                             fig_width=20,
+                             fig_height_per_neuron = 1.5,
+                                stimulus_info_dict=stimulus_info_dict,
+                             save_folder=save_folder
+                             )
