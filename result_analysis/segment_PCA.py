@@ -7,7 +7,7 @@ import pandas as pd
 import json
 import os
 
-class EpochPCA:
+class SegmentPCA:
     def __init__(self, neuron_segments_dict, config_path=None):
         self.data = neuron_segments_dict
         self.pca_results = {}
@@ -933,7 +933,7 @@ if __name__ == "__main__":
     import json
     
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from utils.HDF5_load import load_h5file
+    from utils.HDF5Toolkit import load_h5file
     neuron_segments_dict = load_h5file(
             path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
             root_name= 'neuron_segments_dict')
@@ -941,7 +941,7 @@ if __name__ == "__main__":
     neuron_segments_dict_correct = BaselineCorrection(neuron_segments_dict)
     neuron_segments_dict_correct.apply_baseline_correction()
     neuron_segments_dict = neuron_segments_dict_correct.corrected_data
-    pca_analyzer = EpochPCA(neuron_segments_dict, 
+    pca_analyzer = SegmentPCA(neuron_segments_dict, 
                             config_path=r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config')
     pca_analyzer.arrange_data(time_window=None, average_trials=True, fill_missing_pairs=True)
     pca_analyzer.perform_pca(n_components=10, center_data=True)
