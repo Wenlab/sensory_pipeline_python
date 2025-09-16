@@ -59,9 +59,6 @@ def save_h5file(path, root_name, mode = "a",**kwargs):
         for key, value in kwargs.items():
             save_to_hdf5(file, f"{root_name}/{key}", value)
 
-import h5py
-import numpy as np
-import torch
 
 def load_from_hdf5(item):
     """
