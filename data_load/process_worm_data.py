@@ -41,8 +41,9 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
     for worm_key, data in worm_data.items():
         biological_ID = data["biological_ID"][0].tolist()
         for full_id in biological_ID:
-            group_key = full_id[:4]
-            if group_key.startswith("A"):
+            group_key = full_id
+            # if group_key.startswith("A"):
+            if not group_key.isdigit():
                 if group_key not in neuron_groups:
                     neuron_groups[group_key] = set()
                 neuron_groups[group_key].add(full_id)
@@ -103,17 +104,17 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
                     # If no downsampling needed, concatenate the parts
                     seg_data = np.concatenate((pre_stimulus, stimulus, post_stimulus))
                     relative_start_time = len(pre_stimulus)
-                    relative_end_time = len(pre_stimulus) + len(stimulus) - 1
+                    relative_end_time = len(pre_stimulus) + len(stimulus)
                 
                 # Smooth the concatenated segment
-                seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
+                # seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
 
                 stimulus_type = worm_stimuli[idx]
 
                 segments_data.append(
                     {
                         "stimulus_type": stimulus_type,
-                        "deltaFoverF_0": seg_data_smooth,
+                        "deltaFoverF_0": seg_data,
                         "start_time": relative_start_time,  # relative start time after separated downsampling
                         "end_time": relative_end_time,      # relative end time after separated downsampling
                     }
@@ -618,15 +619,15 @@ if __name__ == "__main__":
     #     }
     # }
 
-    result_dict_0515_EGCG = load_and_process_worm_data(
-        h5_file_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5",
-        channel_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx",
-        ID_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
-        date="20250515",
-        vps_setting=5,
-        exclude_key=["w3","w4"],
-        boundary_method='preserve'  # Use boundary preservation for better edge features
-    )
+    # result_dict_0515_EGCG = load_and_process_worm_data(
+    #     h5_file_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5",
+    #     channel_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx",
+    #     ID_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
+    #     date="20250515",
+    #     vps_setting=5,
+    #     exclude_key=["w3","w4"],
+    #     boundary_method='preserve'  # Use boundary preservation for better edge features
+    # )
     # from utils.HDF5Toolkit import save_h5file
     # save_h5file(
     #     r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
@@ -634,3 +635,11 @@ if __name__ == "__main__":
     #     mode='w',
     #     **return_dict["neuron_segments_dict_reorganized"]
     # )
+
+    result_dict = load_and_process_worm_data(
+        h5_file_path=r"I:\WJH\0628_LYP\intensity.h5",
+        channel_info_path=r"I:\WJH\0628_LYP\output_volumes.xlsx",
+        ID_info_path=r"I:\WJH\0628_LYP\ID.xlsx",
+        date="20240628",
+        vps_setting=5,
+        boundary_method='preserve')
