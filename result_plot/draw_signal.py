@@ -10,6 +10,7 @@ from tqdm import tqdm
 import sys
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import pdist
+from scipy.stats import zscore
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -510,6 +511,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
                              fig_width=12,
                              fig_height_per_neuron = 1.5,
                              stimulus_info_dict=None,
+                             cluster_stimulus=None,
                              save_folder=None,
                              plot_covariance=True
                              ):
@@ -534,7 +536,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
     stimulus_neuron_counts = neuron_segments_df.groupby('stimulus')['neuron'].nunique()
 
     # cluster_stimulus = stimulus_neuron_counts.idxmax()
-    cluster_stimulus = 'c4_6'
+    cluster_stimulus = cluster_stimulus if cluster_stimulus else stimulus_neuron_counts.idxmax()
     print(f"cluster based on {cluster_stimulus}")
     df_cluster_stimulus = neuron_segments_df[neuron_segments_df['stimulus'] == cluster_stimulus]
     if df_cluster_stimulus.empty:
@@ -571,10 +573,14 @@ def draw_mean_signal_cluster(neuron_segments_df,
                     neurons_imputed_with_zeros.append(neuron)
         
         cluster_matrix_full = pd.to_numeric(cluster_matrix_full.stack(), errors='coerce').unstack().fillna(0).astype(float)
+        # Z-score normalization across time points for each neuron
+        cluster_matrix_zscored= zscore(cluster_matrix_full, axis=1)
+        cluster_matrix_zscored = np.nan_to_num(cluster_matrix_zscored)  # Replace NaNs with 0 after z-scoring
+        cluster_matrix_zscored = pd.DataFrame(cluster_matrix_zscored, index=cluster_matrix_full.index, columns=cluster_matrix_full.columns)
 
         neurons_to_cluster = [n for n in all_neurons if n not in neurons_imputed_with_zeros]
         if len(neurons_to_cluster) > 1:
-            matrix_for_clustering = cluster_matrix_full.loc[neurons_to_cluster]
+            matrix_for_clustering = cluster_matrix_zscored.loc[neurons_to_cluster]
             distance_matrix = pdist(matrix_for_clustering, metric='correlation')
             linkage_matrix = linkage(distance_matrix, method='ward')
             cluster_order_indices = leaves_list(linkage_matrix)
@@ -710,7 +716,6 @@ def draw_mean_signal_cluster(neuron_segments_df,
     bracket_y = 0.4
     bracket_height = 0.1
     
-    current_pos = 0
     for compound_name, stimulus_codes in grouped_stimuli:
         # Only draw bracket if there are stimuli from this group in the plot
         group_stimuli_in_plot = [s for s in stimulus_codes if s in stimulus_types]
@@ -737,7 +742,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
             
     if save_folder:
         fig.savefig(f"{save_folder}/mean_signal.png", dpi=300, bbox_inches='tight')
-        fig.savefig(f"{save_folder}/mean_signal.pdf", dpi=300, bbox_inches='tight')
+        fig.savefig(f"{save_folder}/mean_signal.svg", dpi=300, bbox_inches='tight')
     
     # plt.show()
     plt.close(fig)
