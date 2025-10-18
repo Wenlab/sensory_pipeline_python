@@ -2,7 +2,12 @@ import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 from dPCA import dPCA
+import sys
+if __name__ == "__main__":
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from utils.parse_stimulus_info import group_and_sort_stimuli
 class SegmentdPCA:
     def __init__(self, neuron_segments_dict, compound_info=None, compound_color_scheme=None):
         """
@@ -109,6 +114,17 @@ class SegmentdPCA:
         self.dpca_results = Z
         self.dpca_all = dpca
         return self.dpca_results
+    
+    def plot_explained_variance(self, top_n=10, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(12,6))
+        
+        # get total explained variance for sorting
+        total_val = self.dpca_all.explained_variance_ratio_
+        sorted_indices = np.argsort(total_val)[::-1][:top_n]
+
+        # get explained variance for each component type
+        
 
     def plot_dpca_results(self, components=['t', 's', 'st'], component_indices=[0], 
                           figsize=(18, 6), show_legend=True, save_path=None):
@@ -386,6 +402,134 @@ class SegmentdPCA:
             for stimulus in stimuli:
                 compound_name = self._get_compound_name(stimulus)
                 print(f"  - {stimulus}: {compound_name}")
+    
+    def plot_dpca_grid(self, component_idx=0, vertical_overlap=0.3, fig_width=12, fig_height_per_stimulus=0.8, save_folder=None):
+        """
+        Plots dPCA results in a grid, with stimuli as rows and component types as columns.
+        Similar layout to draw_mean_signal_cluster.
+
+        :param component_idx: Index of the dPC to plot for each component type. Default is 0 (the first component).
+        :param vertical_overlap: Overlap between rows.
+        :param fig_width: Total width of the figure.
+        :param fig_height_per_stimulus: Height for each stimulus row.
+        :param save_folder: Folder to save the figure.
+        """
+        if self.dpca_results is None:
+            raise ValueError("dPCA results not computed. Call perform_dpca() first.")
+
+        Z = self.dpca_results
+        components_to_plot = ['t', 's', 'st']
+        time = np.arange(Z['t'].shape[2])
+
+        # 1. Get sorted and grouped stimuli list
+        if self.compound_info:
+            grouped_stimuli = group_and_sort_stimuli(self.compound_info)
+            stimulus_order = [s for _, stimuli in grouped_stimuli for s in stimuli]
+            
+            # Filter to only include stimuli present in the analysis
+            available_stimuli = set(self.stimulus_index_map.keys())
+            stimulus_order = [s for s in stimulus_order if s in available_stimuli]
+        else:
+            stimulus_order = sorted(self.stimulus_index_map.keys())
+            grouped_stimuli = [(s, [s]) for s in stimulus_order]
+
+        n_stimuli = len(stimulus_order)
+        n_components = len(components_to_plot)
+
+        # 2. Calculate global y-axis limits for dPC scores
+        all_scores = []
+        for comp_type in components_to_plot:
+            all_scores.append(Z[comp_type][component_idx, :, :])
+        
+        y_min = np.min(all_scores)
+        y_max = np.max(all_scores)
+        padding = (y_max - y_min) * 0.1
+        y_lim = (y_min - padding, y_max + padding)
+
+        # 3. Setup Figure using add_axes for precise control
+        total_height = fig_height_per_stimulus * (1 + (n_stimuli - 1) * (1 - vertical_overlap))
+        fig = plt.figure(figsize=(fig_width, total_height))
+        
+        # Define layout: main plot area and a left margin for stimulus group labels
+        main_plot_width_ratio = 0.85
+        left_margin_ratio = 1.0 - main_plot_width_ratio
+        
+        subplot_width = main_plot_width_ratio / n_components
+        subplot_height = fig_height_per_stimulus / total_height
+
+        # 4. Loop through stimuli and components to create subplots
+        for i, stimulus in enumerate(stimulus_order):
+            stimulus_idx = self.stimulus_index_map[stimulus]
+            
+            for j, comp_type in enumerate(components_to_plot):
+                left = left_margin_ratio + j * subplot_width
+                bottom = (n_stimuli - i - 1) * (subplot_height * (1 - vertical_overlap))
+                
+                ax = fig.add_axes([left, bottom, subplot_width, subplot_height])
+                ax.set_facecolor('none')
+
+                # Plot the dPC trace
+                trace = Z[comp_type][component_idx, stimulus_idx, :]
+                color = self._get_stimulus_color(stimulus)
+                ax.plot(time, trace, color=color, linewidth=1.5)
+                
+                # Style the axes
+                ax.axhline(y=0, color='black', linestyle=':', linewidth=0.8, alpha=0.7)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_ylim(y_lim)
+                ax.set_xlim(time[0], time[-1])
+
+                # Add component titles at the top row
+                if i == 0:
+                    ax.set_title(self._get_component_title(comp_type), fontsize=12, pad=10)
+
+        # 5. Add stimulus names and group brackets on the left margin
+        label_ax = fig.add_axes([0, 0, left_margin_ratio, 1])
+        label_ax.axis('off')
+
+        for i, stimulus in enumerate(stimulus_order):
+            y_pos = ((n_stimuli - i - 0.5) * (subplot_height * (1 - vertical_overlap)) + bottom * 0.5) / (1 + bottom * 0.5)
+            full_name = self._get_compound_name(stimulus)
+            label_ax.text(0.95, y_pos, full_name, ha='right', va='center', fontsize=8)
+
+        # Add tree brackets for compound groups
+        bracket_x = 0.1
+        bracket_width = 0.1
+        
+        for compound_name, stimulus_codes in grouped_stimuli:
+            group_stimuli_in_plot = [s for s in stimulus_codes if s in stimulus_order]
+            if not group_stimuli_in_plot:
+                continue
+
+            start_idx = stimulus_order.index(group_stimuli_in_plot[0])
+            end_idx = stimulus_order.index(group_stimuli_in_plot[-1])
+
+            y_start_center = ((n_stimuli - start_idx - 0.5) * (subplot_height * (1 - vertical_overlap)) + bottom * 0.5) / (1 + bottom * 0.5)
+            y_end_center = ((n_stimuli - end_idx - 0.5) * (subplot_height * (1 - vertical_overlap)) + bottom * 0.5) / (1 + bottom * 0.5)
+            
+            # Draw bracket
+            label_ax.plot([bracket_x, bracket_x + bracket_width], [y_start_center, y_start_center], 'k-', linewidth=1)
+            label_ax.plot([bracket_x, bracket_x + bracket_width], [y_end_center, y_end_center], 'k-', linewidth=1)
+            label_ax.plot([bracket_x, bracket_x], [y_start_center, y_end_center], 'k-', linewidth=1)
+            
+            # Add compound name
+            label_ax.text(bracket_x - 0.02, (y_start_center + y_end_center) / 2, compound_name, 
+                         ha='right', va='center', fontsize=9, weight='bold')
+
+        plt.tight_layout(rect=[left_margin_ratio, 0, 1, 1])
+        
+        if save_folder:
+            os.makedirs(save_folder, exist_ok=True)
+            path = os.path.join(save_folder, f"dpca_grid_pc{component_idx+1}.svg")
+            fig.savefig(path, bbox_inches='tight')
+            print(f"Figure saved to {path}")
+
+        plt.show()        
 
 if __name__ == "__main__":
     import sys
@@ -393,7 +537,7 @@ if __name__ == "__main__":
     import json
     
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from utils.HDF5_load import load_h5file
+    from utils.HDF5Toolkit import load_h5file
     neuron_segments_dict = load_h5file(
             path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
             root_name= 'neuron_segments_dict')
