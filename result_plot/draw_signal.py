@@ -646,6 +646,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
     subplot_height = fig_height_per_neuron / total_height
     bottom_offset = extra_bottom_space / total_height
 
+    # fill blank neuron with its symmetric neuron's data if possible
     for i, neuron in enumerate(neurons_in_cluster_order):
         for j, stimulus in enumerate(stimulus_types):
             left = j * subplot_width
@@ -663,6 +664,16 @@ def draw_mean_signal_cluster(neuron_segments_df,
                                     mean_trace.values - sem_trace.values,
                                     mean_trace.values + sem_trace.values,
                                     color='gray', alpha=0.3, zorder=9)
+            else:
+                symmetric_neuron = get_symmetric_neuron(neuron)
+                df_symmetric = neuron_segments_df[(neuron_segments_df['neuron']==symmetric_neuron) & (neuron_segments_df['stimulus']==stimulus)]
+
+                if not df_symmetric.empty:
+                    mean_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].mean()
+                    if not mean_trace.empty:
+                        sem_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].sem()
+                        ax.plot(mean_trace.index, mean_trace.values, color='blue', linestyle = "-.",zorder=10)
+
             ax.axhline(y=0, color='black', linestyle=':', linewidth=1, alpha=0.5,zorder=1)
             # remove spines and ticks
             ax.spines['top'].set_visible(False)
