@@ -7,7 +7,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
 from scipy import stats
 import sys
 import os
@@ -15,7 +14,7 @@ import json
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.HDF5_load import load_h5file
+    from utils.HDF5Toolkit import load_h5file
 
 #%%
 def preprocess_data_for_plotting(neuron_segments_dict):
@@ -365,9 +364,9 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                 opacity=0.4,
                                 showlegend=False,
                                 hovertemplate=(
-                                    f"{hover_text}<br>y: %{{y:.3f}}<extra></extra>"
+                                    f"{hover_text}<br>"
                                     f"x: %{{x}}<br>"
-                                    f"y: %{{y}}<br>"
+                                    f"y: %{{y:.3f}}<br>"
                                     f"N: {len(all_segments)}"
                                 ),
                             ),
@@ -437,7 +436,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                 # Only add x-label on bottom row
                 if row_idx == len(selected_neurons):
                     fig.update_xaxes(
-                        title_text="Time (volumes)", 
+                        title_text="Time(s)", 
                         row=row_idx, 
                         col=col_idx
                     )
