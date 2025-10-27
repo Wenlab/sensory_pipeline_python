@@ -11,7 +11,7 @@ import os
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from id_identify.box_region_npy import box_region_npy
+from id_identify.draw_neuron_box import draw_neuron_box
 
 # %%
 def image_process(image_np, background_value = 110):
@@ -44,7 +44,7 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , a
     red = image_process(red)
     neuron_pt_tuple = np.load(neuron_pt_tuple_path)
     output_shape = (2,18,1024,1024)
-    mask = box_region_npy(neuron_pt_tuple[:2],output_shape=output_shape, if_save=False)
+    mask = draw_neuron_box(neuron_pt_tuple[:2],output_shape=output_shape, if_save=False)
 
     return green, red, mask
 

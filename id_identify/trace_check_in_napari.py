@@ -5,7 +5,7 @@ import os
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.read_vols_using_dask import show_volumes_in_napari
-from id_identify.box_region_npy import box_region_npy
+from id_identify.draw_neuron_box import draw_neuron_box
 
 #%%
 def trace_check_in_napari(
@@ -59,7 +59,7 @@ def trace_check_in_napari(
     elif neuron_pt_tuple_path is not None:
         neuron_pt_tuple = np.load(neuron_pt_tuple_path)
         output_shape = (neuron_pt_tuple.shape[0], volume_read_params['z_end_frame_number'] - volume_read_params['z_start_frame_number'] + 1, 1024, 1024)
-        mask = box_region_npy(neuron_pt_tuple, output_shape=output_shape, if_save=True, save_path= neuron_pt_tuple_path.replace('.npy', '_mask.npy'))
+        mask = draw_neuron_box(neuron_pt_tuple, output_shape=output_shape, if_save=True, save_path= neuron_pt_tuple_path.replace('.npy', '_mask.npy'))
         viewer.add_labels(
             mask,
             name="mask",
