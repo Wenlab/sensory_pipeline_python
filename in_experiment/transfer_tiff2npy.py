@@ -15,6 +15,22 @@ from utils.read_vols_using_dask import (
 )
 
 
+def _resolve_worm_output_path(base_folder, worm_lower):
+    """Return the resolved output path for a worm and ensure folder structure."""
+    base_path = Path(base_folder)
+    parent = base_path.parent
+
+    if parent.name.lower() == worm_lower.lower():
+        worm_root = parent
+        resolved = base_path
+    else:
+        worm_root = parent / worm_lower
+        resolved = worm_root / base_path.name
+
+    resolved.mkdir(parents=True, exist_ok=True)
+    return resolved, worm_root
+
+
 def _get_camera_subfolder(camera_type):
     """Get camera subfolder name based on camera type."""
     camera_folders = {
@@ -114,7 +130,7 @@ def _process_ref_volumes(
     Process reference volumes - one volume per folder.
     
     Each ref folder contributes exactly one volume (the first available),
-    saved as: ImgStk001_dk001_{worm}_Dt{YYYYMM}_{idx:06d}.npy
+    saved as: ImgStk001_dk001_{worm}_Dt{YYYYMM}_{seq:06d}.npy
     """
     if not ref_folders:
         return
@@ -126,12 +142,14 @@ def _process_ref_volumes(
     z_start = volume_read_params["z_start_frame_number"]
     z_end = volume_read_params["z_end_frame_number"]
     
-    output_path = Path(ref_output_folder)
-    output_path.mkdir(parents=True, exist_ok=True)
+    output_path, _ = _resolve_worm_output_path(ref_output_folder, worm_lower)
+    if show_progress:
+        tqdm.write(f"  Output (ref) -> {output_path}")
     
-    iterator = tqdm(enumerate(ref_folders), total=len(ref_folders), desc="Ref volumes") if show_progress else enumerate(ref_folders)
+    iterator = tqdm(ref_folders, total=len(ref_folders), desc="Ref volumes") if show_progress else ref_folders
+    sequence_counter = 0
     
-    for idx, ref_folder in iterator:
+    for ref_folder in iterator:
         tiff_dir = ref_folder / camera_subfolder
         
         if not tiff_dir.exists():
@@ -150,8 +168,7 @@ def _process_ref_volumes(
         start_tiff = first_vol * frame_number_per_volume + z_start
         end_tiff = first_vol * frame_number_per_volume + z_end
         
-        # Save to temporary location
-        save_volumes_with_tiff_range(
+        saved_files = save_volumes_with_tiff_range(
             tiff_path_=str(tiff_dir),
             volume_read_params=volume_read_params,
             output_folder=str(output_path),
@@ -160,22 +177,23 @@ def _process_ref_volumes(
             start_tiff_number=start_tiff,
             end_tiff_number=end_tiff,
             show_progress=False,
+            filename_pattern="ImgStk001_dk001_{worm}_Dt{date}_{seq:06d}.npy",
+            sequence_start=sequence_counter,
         )
-        
-        # Rename to sequential index
-        original_file = output_path / f"ImgStk001_dk001_{worm_lower}_Dt{date_info}_{first_vol:06d}.npy"
-        target_file = output_path / f"ImgStk001_dk001_{worm_lower}_Dt{date_info}_{idx:06d}.npy"
-        
-        if original_file.exists():
-            if target_file.exists():
-                target_file.unlink()
-            original_file.replace(target_file)
-            if show_progress:
-                tqdm.write(f"  Saved: {target_file.name}")
-        else:
-            print(f"  Warning: Expected file not created: {original_file}")
-    
-    print(f"✓ Completed {len(ref_folders)} reference volume(s)")
+        saved_count = len(saved_files)
+        sequence_counter += saved_count
+
+        if saved_count == 0:
+            print(f"  Warning: No volumes saved for reference folder {ref_folder.name}")
+            continue
+
+        if show_progress:
+            tqdm.write(
+                f"  ✓ Saved {saved_count} reference volume(s) from {ref_folder.name}; "
+                f"latest file: {saved_files[-1].name}"
+            )
+
+    print(f"✓ Completed {sequence_counter} reference volume(s)")
 
 
 def _process_ex_volumes(
@@ -192,8 +210,8 @@ def _process_ex_volumes(
     
     Each ex folder gets its own subfolder:
       ImgStk001_dk{idx:03d}_{worm}_Dt{YYYYMM}/
-    containing files:
-      ImgStk001_dk{idx:03d}_{worm}_Dt{YYYYMM}_{vol:06d}.npy
+        containing files:
+            ImgStk001_dk{idx:03d}_{worm}_Dt{YYYYMM}_{seq:06d}.npy
     """
     if not ex_folders:
         return
@@ -202,10 +220,12 @@ def _process_ex_volumes(
     
     camera_subfolder = _get_camera_subfolder(camera_type)
     
-    output_base = Path(ex_output_folder)
-    output_base.mkdir(parents=True, exist_ok=True)
+    ex_output_base, _ = _resolve_worm_output_path(ex_output_folder, worm_lower)
+    if show_progress:
+        tqdm.write(f"  Output (ex) -> {ex_output_base}")
     
     iterator = tqdm(enumerate(ex_folders, start=1), total=len(ex_folders), desc="Ex folders") if show_progress else enumerate(ex_folders, start=1)
+    total_saved = 0
     
     for idx, ex_folder in iterator:
         tiff_dir = ex_folder / camera_subfolder
@@ -214,16 +234,16 @@ def _process_ex_volumes(
             print(f"  Warning: Camera folder not found: {tiff_dir}")
             continue
         
-        # Create subfolder for this experiment
+        # Create subfolder for this experiment under the worm-specific folder
         subfolder_name = f"ImgStk001_dk{idx:03d}_{worm_lower}_Dt{date_info}"
-        subfolder_path = output_base / subfolder_name
+        subfolder_path = ex_output_base / subfolder_name
         subfolder_path.mkdir(parents=True, exist_ok=True)
         
         if show_progress:
             tqdm.write(f"\n  Processing: {ex_folder.name} -> {subfolder_name}")
         
-        # Save all volumes
-        save_volumes_with_tiff_range(
+        # Save all volumes using sequential naming within the subfolder
+        saved_files = save_volumes_with_tiff_range(
             tiff_path_=str(tiff_dir),
             volume_read_params=volume_read_params,
             output_folder=str(subfolder_path),
@@ -232,30 +252,23 @@ def _process_ex_volumes(
             start_tiff_number=0,
             end_tiff_number=None,
             show_progress=False,
+            filename_pattern="{subfolder_name}_{seq:06d}.npy",
+            sequence_start=0,
+            extra_format_kwargs={"subfolder_name": subfolder_name, "folder_idx": idx},
         )
-        
-        # Rename files to sequential indices starting at 000000
-        npy_files = list(subfolder_path.glob("*.npy"))
-        
-        # Extract original volume number for sorting
-        def get_vol_number(filepath):
-            match = re.search(r"_(\d{6})\.npy$", filepath.name)
-            return int(match.group(1)) if match else 0
-        
-        npy_files.sort(key=get_vol_number)
-        
-        for new_idx, old_file in enumerate(npy_files):
-            new_name = f"{subfolder_name}_{new_idx:06d}.npy"
-            new_file = subfolder_path / new_name
-            
-            if new_file.exists():
-                new_file.unlink()
-            old_file.replace(new_file)
-        
+        saved_count = len(saved_files)
+        total_saved += saved_count
+
+        if saved_count == 0:
+            print(f"  Warning: No experiment volumes saved for folder {ex_folder.name}")
+            continue
+
         if show_progress:
-            tqdm.write(f"  ✓ Saved {len(npy_files)} volume(s) to {subfolder_name}")
+            tqdm.write(
+                f"  ✓ Saved {saved_count} volume(s) to {subfolder_name} (under {ex_output_base})"
+            )
     
-    print(f"✓ Completed {len(ex_folders)} experiment folder(s)")
+    print(f"✓ Completed {len(ex_folders)} experiment folder(s) with {total_saved} volume(s)")
 
 
 def transfer_tiff2npy(
@@ -275,14 +288,15 @@ def transfer_tiff2npy(
     Reference volumes:
     ------------------
     - One volume (first available) is extracted from each ref folder
-    - Saved as: ImgStk001_dk001_{worm}_Dt{YYYYMM}_{sort_idx:06d}.npy
-    - All ref volumes for a worm are saved directly in ref_output_folder
+    - Saved as: ImgStk001_dk001_{worm}_Dt{YYYYMM}_{seq:06d}.npy (sequential per worm)
+    - Stored under: <parent_of_ref_output>/<worm>/<name_of_ref_output_folder>
     
     Experiment volumes:
     -------------------
     - All volumes are extracted from each ex folder
     - Each folder gets its own subfolder: ImgStk001_dk{sort_idx:03d}_{worm}_Dt{YYYYMM}/
-    - Files named: ImgStk001_dk{sort_idx:03d}_{worm}_Dt{YYYYMM}_{vol_idx:06d}.npy
+    - Files named: ImgStk001_dk{sort_idx:03d}_{worm}_Dt{YYYYMM}_{seq:06d}.npy (sequence resets per folder)
+    - Stored under: <parent_of_ex_output>/<worm>/<name_of_ex_output_folder>/ImgStk001_dkXXX_...
     
     Parameters:
     -----------
@@ -300,7 +314,7 @@ def transfer_tiff2npy(
     Example:
     --------
     >>> transfer_tiff2npy(
-    ...     nas_folder_path=r"\\NAS\experiments\20250421_EGCG",
+    ...     nas_folder_path=r"\\NAS\experiments",
     ...     ref_output_folder=r"H:\output\ref_volumes",
     ...     ex_output_folder=r"H:\output\ex_volumes",
     ...     camera_type="red"
@@ -374,15 +388,14 @@ def transfer_tiff2npy(
 
 
 if __name__ == "__main__":
-    # Example usage
-    nas_folder_path = r"\\192.168.1.192\worm-tools\Jinghao-Wang\tea_experiment\20250421_EGCG"
-    ref_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\ref_volumes"
-    ex_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\ex_volumes"
+    nas_folder_path = r"\\192.168.1.192\Odor\Jinghao-Wang\20251025_ZM11706_salt"
+    ref_output_folder = r"I:\WJH\infer\me\20251025\ZM\ref_volumes"
+    ex_output_folder = r"I:\WJH\infer\me\20251025\ZM\ex_volumes"
     
     transfer_tiff2npy(
         ex_folder_path=nas_folder_path,
         ref_output_folder=ref_output_folder,
         ex_output_folder=ex_output_folder,
-        camera_type="red",
+        camera_type="green",
         show_progress=True
     )
