@@ -404,7 +404,10 @@ def save_volumes_with_tiff_range(
     date_info,
     start_tiff_number=0,
     end_tiff_number=None,
-    show_progress=True
+    show_progress=True,
+    filename_pattern=None,
+    sequence_start=0,
+    extra_format_kwargs=None,
 ):
     """
     Save volumes in specified tiff file range with custom naming convention.
@@ -427,10 +430,28 @@ def save_volumes_with_tiff_range(
         Ending tiff file number (inclusive). If None, process all available tiffs
     show_progress : bool, default=True
         Whether to show progress bar
+    filename_pattern : str, optional
+        Python format string for output filenames. Available keys: 'worm', 'date',
+        'vol', 'volume', 'seq', 'sequence', plus any provided via extra_format_kwargs.
+        Defaults to "ImgStk001_dk001_{worm}_Dt{date}_{vol:06d}.npy".
+    sequence_start : int, default=0
+        Starting index for the sequential 'seq' placeholder when multiple volumes are saved.
+    extra_format_kwargs : dict, optional
+        Additional key/value pairs made available to filename_pattern formatting.
+
+    Returns
+    -------
+    list[Path]
+        List of file paths that were written.
     """
     # Create output directory if it doesn't exist
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
+
+    if filename_pattern is None:
+        filename_pattern = "ImgStk001_dk001_{worm}_Dt{date}_{vol:06d}.npy"
+
+    extra_format_kwargs = extra_format_kwargs or {}
     
     # Get frame_number_per_volume from volume_read_params
     frame_number_per_volume = volume_read_params["frame_number_per_volume"]
@@ -442,7 +463,7 @@ def save_volumes_with_tiff_range(
         all_vols = extract_volume_numbers_from_dir(tiff_path_)
         if not all_vols:
             print("No volumes found in directory")
-            return
+            return []
         max_volume = max(all_vols)
         end_tiff_number = (max_volume + 1) * frame_number_per_volume - 1
     
@@ -454,7 +475,7 @@ def save_volumes_with_tiff_range(
     
     if not selected_vols:
         print(f"No volumes found for tiff range {start_tiff_number}-{end_tiff_number}")
-        return
+        return []
     
     print(f"Processing tiff files {start_tiff_number} to {end_tiff_number}")
     print(f"This spans volumes {min(selected_vols)} to {max(selected_vols)} ({len(selected_vols)} volumes)")
@@ -492,7 +513,9 @@ def save_volumes_with_tiff_range(
     # Save volumes with progress bar
     iterable = tqdm(volumes_to_save, desc="Saving volumes") if show_progress else volumes_to_save
     
-    for idx, vol_num in iterable:
+    saved_files = []
+    
+    for offset, (idx, vol_num) in enumerate(iterable):
         # Extract single volume from dask array
         single_volume = images_dask[idx, :, :, :]  # Shape: (z, y, x)
         
@@ -502,14 +525,38 @@ def save_volumes_with_tiff_range(
         # Transpose from (z, y, x) to (y, x, z)
         volume_transposed = volume_data.transpose(1, 2, 0)
         
-        # Create filename following the specified convention
-        filename = f"ImgStk001_dk001_{worm_name}_Dt{date_info}_{vol_num:06d}.npy"
+        # Prepare formatting context for filename
+        seq_index = sequence_start + offset
+        format_context = {
+            "worm": worm_name,
+            "date": date_info,
+            "vol": vol_num,
+            "volume": vol_num,
+            "seq": seq_index,
+            "sequence": seq_index,
+            "sequence_index": seq_index,
+            "volume_index": vol_num,
+        }
+        format_context.update(extra_format_kwargs)
+
+        try:
+            filename = filename_pattern.format(**format_context)
+        except KeyError as exc:
+            missing_key = exc.args[0]
+            raise KeyError(
+                f"Missing placeholder '{missing_key}' for filename_pattern '{filename_pattern}'"
+            ) from exc
+
         filepath = output_path / filename
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         
         # Save the volume
         np.save(filepath, volume_transposed)
+        saved_files.append(filepath)
     
-    print(f"Successfully saved {len(volumes_to_save)} volumes to {output_folder}")
+    print(f"Successfully saved {len(saved_files)} volumes to {output_folder}")
+
+    return saved_files
 
 # Updated wrapper function
 def process_experiment_with_tiff_range(
