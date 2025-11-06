@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 from channel_info_get.extract_channel_info import ExtractChannelInfo
+from channel_info_get.stimulus_config_builder import generate_config_from_channel_meanings
 
 def _get_trial_folders4multiple(root_folder):
     """
@@ -92,17 +93,17 @@ def _merge_sheets_by_prefix(excel_path, output_path):
     return merged_sheets
 
 
-def process_labjack_data(root_folder, output_folder, config_file = None, FileMode='Multiple', mode='merge'):
+def process_labjack_data(root_folder, output_folder, config_file = None, FileMode='multiple', mode='merge'):
     """
     Process labjack data for multiple trial folders
     Args:
         root_folder: root folder containing trial folders
         output_folder: folder to save processed data
         config_file: configuration file path
-        FileMode: 'Multiple' or 'Single'
+        FileMode: 'multiple' or 'single'
         mode: 'merge' or 'split' for single worm different trials
     """
-    if FileMode == 'Multiple':
+    if FileMode == 'multiple':
         trial_folders = _get_trial_folders4multiple(root_folder)
     else:
         trial_folders = [root_folder]
@@ -134,5 +135,34 @@ def process_labjack_data(root_folder, output_folder, config_file = None, FileMod
 
 
 if __name__ == "__main__":
-    root_folder = r'\\192.168.1.192\Odor\Jinghao-Wang\20251022_WEN0065_Ecoli_Efs_GAM\labjack'
-    process_labjack_data(root_folder, output_folder=r'H:\Process_temporary\WJH\olfactory\labjack_processed', FileMode='Multiple', mode='merge')
+    channel_meanings = {
+        "1": "Control1",
+        "2": "Control2",
+        "3": "Buffer",
+        "00": "60 supernatant",
+        "01": "61 supernatant",
+        "02": "62 supernatant",
+        "03": "68 supernatant",
+        "04": "78 supernatant",
+        "05": "c12 supernatant",
+        "06": "swb supernatant",
+        "09": "swb 1night",
+        "10": "c12 1night",
+        "11": "78 1night",
+        "12": "68 1night",
+        "13": "62 1night",
+        "14": "61 1night",
+        "15": "60 1night"
+    }
+    generate_config_from_channel_meanings(
+        channel_meanings=channel_meanings,
+        odor_json_path="data_load/config/bacteria.json",
+        color_scheme_path="data_load/config/bacteria_color_scheme.json",
+        output_directory=r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac",
+        bit_mode="16-bit",
+        slice_number=20,
+        state_length=8
+    )
+
+    root_folder = r'\\192.168.1.192\Odor\Jinghao-Wang\20251105_bac\labjack'
+    process_labjack_data(root_folder, output_folder=r'H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac', config_file= r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac\config.json" ,FileMode='multiple', mode='merge')
