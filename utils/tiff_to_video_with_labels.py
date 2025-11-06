@@ -8,6 +8,9 @@ from pathlib import Path
 from tqdm import tqdm
 import tifffile
 import pandas as pd
+if __name__ == "__main__":
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def normalize_uint16_to_uint8(img, contrast_limits=(100, 255)):
@@ -151,7 +154,7 @@ def add_text_to_frame(frame, text, position='top_right',
 
 
 def tiff_to_video(
-    tiff_folder,
+    parent_folder,
     output_video_path,
     stimulus_df,
     worm_key=None,
@@ -171,8 +174,8 @@ def tiff_to_video(
     
     Parameters:
     -----------
-    tiff_folder : str
-        Path to folder containing TIFF files
+    parent_folder : str
+        Path to folder containing TIFF files or subfolders with TIFF files
     output_video_path : str
         Path to output video file
     stimulus_df : pd.DataFrame or dict
@@ -215,12 +218,24 @@ def tiff_to_video(
     else:
         df = stimulus_df
     
-    # Get list of TIFF files
-    tiff_folder = Path(tiff_folder)
-    tiff_files = sorted(list(tiff_folder.glob(frame_pattern)))
-    
+    # Resolve folder and collect TIFF files (supports one level of subfolders)
+    parent_folder = Path(parent_folder)
+    if not parent_folder.exists():
+        raise ValueError(f"Parent folder {parent_folder} does not exist")
+
+    if parent_folder.is_file():
+        raise ValueError(f"Expected a folder but received file path: {parent_folder}")
+
+    tiff_files = list(parent_folder.glob(frame_pattern))
+
+    subfolders = sorted((p for p in parent_folder.iterdir() if p.is_dir()), key=lambda p: p.name)
+    for subfolder in subfolders:
+        tiff_files.extend(subfolder.glob(frame_pattern))
+
+    tiff_files = sorted(tiff_files)
+
     if len(tiff_files) == 0:
-        raise ValueError(f"No TIFF files found in {tiff_folder} with pattern {frame_pattern}")
+        raise ValueError(f"No TIFF files found in {parent_folder} or its subfolders with pattern {frame_pattern}")
     
     print(f"Found {len(tiff_files)} TIFF files")
     
@@ -292,22 +307,22 @@ def tiff_to_video(
 if __name__ == "__main__":
     from data_load.get_stimulus_info import get_stimulus_info
     
-    tiff_folder = r"I:\WJH\flavor\signal_check\20250705\w1"
-    output_video = r"I:\WJH\flavor\signal_check\20250705\w1\output_video.mp4"
-    excel_path = r"I:\WJH\raw\20251026_ZM11706\w1\output_volumes.xlsx"
+    parent_folder = r"I:\WJH\raw\20251105_bac\w5\MIP_Camera-Green_VSC-09321"
+    output_video = r"I:\WJH\raw\20251105_bac\w5\output_video.avi"
+    excel_path = r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac\output_volumes.xlsx"
     
     # Get stimulus info
     stimulus_info = get_stimulus_info(excel_path)
     
     # Generate video
     tiff_to_video(
-        tiff_folder=tiff_folder,
+        parent_folder=parent_folder,
         output_video_path=output_video,
         stimulus_df=stimulus_info,
-        worm_key='w1',  # Specify which worm if stimulus_info is a dict
-        contrast_limits=(100, 255),
-        fps=10,
-        codec='mp4v', # can use MJPG for avi to load in ImageJ
+        worm_key='w5',  # Specify which worm if stimulus_info is a dict
+        contrast_limits=(100, 305),
+        fps=1,
+        codec='MJPG', # can use MJPG for avi to load in ImageJ
         text_position='top_right',
         font_scale=1.0,
     )
