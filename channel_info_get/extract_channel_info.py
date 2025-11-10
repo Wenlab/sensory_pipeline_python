@@ -354,7 +354,7 @@ class ExtractChannelInfo:
         if self.file_mode == 'single':
             if len(self.input_folder_list) != 1:
                 raise ValueError("For single file mode, input_folder_list should contain exactly one folder.")
-            for h5_file in tqdm(self.input_folder_list[0], desc="Processing single h5 file:"):
+            for h5_file in tqdm(self._get_h5_filename_list(self.input_folder_list[0]), desc="Processing single h5 file:"):
                 self.process_single_file(h5_file)
         elif self.file_mode == 'multiple':
             for h5_folder in tqdm(self.input_folder_list, desc="Processing h5 folders:"):
