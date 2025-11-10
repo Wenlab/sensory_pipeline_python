@@ -3,70 +3,299 @@ import numpy as np
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from sklearn.metrics import r2_score
+import warnings
 
-def calculate_delta_F_over_F0(intensity, intervals, baseline_pre=6, baseline_post=1, vps_setting = 1, background_noise=102):
+def split_dataframe(df, n_seg):
+    """Split a dataframe into column-wise segments using a sequence definition.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The dataframe to split.
+    n_seg : array-like or None
+        Column counts for each segment. Values that cannot be converted to
+        positive integers are ignored.
+
+    Returns
+    -------
+    list[pandas.DataFrame]
+        A list of dataframe copies, each containing a consecutive slice of the
+        original columns. When ``n_seg`` is empty or ``None`` the list contains
+        a single copy of ``df``. Any remaining columns after consuming
+        ``n_seg`` are returned as an additional segment so that all columns are
+        preserved.
     """
-    
-    Parameters:
-    - intensity: DataFrame, 强度值数据
-    - intervals: list, 刺激区间列表
-    - baseline_pre, baseline_post: 基线区间参数
-    
-    Returns:
-    - delta_F_over_F0: DataFrame, deltaF/F0值
-    - fitted_F0_df: DataFrame, 拟合的F0曲线
-    - quality_info: dict, 拟合质量信息
+
+    if df is None or df.empty:
+        return []
+
+    total_cols = df.shape[1]
+
+    segment_lengths = []
+    if n_seg is not None:
+        try:
+            flat_values = np.atleast_1d(n_seg).tolist()
+        except Exception:
+            flat_values = list(n_seg) if isinstance(n_seg, (list, tuple)) else [n_seg]
+        for value in flat_values:
+            try:
+                length = int(value)
+            except (TypeError, ValueError):
+                continue
+            if length > 0:
+                segment_lengths.append(length)
+
+    split_dfs = []
+    current_col_index = 0
+
+    for num in segment_lengths:
+        if current_col_index >= total_cols:
+            print("Warning: n_seg exceeds the number of columns in the dataframe.")
+            break
+        end_col_index = current_col_index + num
+        if end_col_index > total_cols:
+            print(f"Warning: end_col_index {end_col_index} exceeds total columns {total_cols}. Adjusting to fit.")
+            end_col_index = total_cols
+
+        split_df = df.iloc[:, current_col_index:end_col_index].copy()
+        if not split_df.empty:
+            split_dfs.append(split_df)
+        current_col_index = end_col_index
+
+    if not split_dfs:
+        split_dfs.append(df.copy())
+
+    return split_dfs
+
+
+def _infer_segment_offset(columns):
+    """Best-effort conversion of the first column label to an integer offset."""
+    if columns is None or len(columns) == 0:
+        return 0
+    first_label = columns[0]
+    try:
+        return int(first_label)
+    except (TypeError, ValueError):
+        try:
+            return int(float(first_label))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _prepare_segment_intervals(intervals, segments):
+    """Map global stimulus intervals to each segmented dataframe.
+
+    The helper supports two interval formats:
+    - flat list of ``(start, end)`` tuples that span the full recording
+    - list of lists where each inner list already corresponds to a segment
     """
-    fitted_F0_df, fitted_params, r2_scores, model_types = fitted_F_base(
-        intensity, intervals, baseline_pre, baseline_post, vps_setting=vps_setting
+
+    if not segments:
+        return []
+
+    if not intervals:
+        return [[] for _ in segments]
+
+    first_entry = intervals[0]
+    is_nested = (
+        isinstance(first_entry, (list, tuple))
+        and bool(first_entry)
+        and isinstance(first_entry[0], (list, tuple))
     )
-    
-    # 计算delta_F_over_F0
-    delta_F_over_F0 = pd.DataFrame(index=intensity.index, columns=intensity.columns)
-    
-    for roi_idx in range(intensity.shape[0]):
-        # 获取原始信号和拟合的基线
-        raw_signal = intensity.iloc[roi_idx].values
-        baseline = fitted_F0_df.iloc[roi_idx].values
-        
-        # 检查基线是否有非常小的值（可能导致除法问题）
-        min_baseline = np.percentile(baseline, 5)  # 使用第5百分位数作为最小阈值
-        safe_baseline = np.maximum(baseline, min_baseline * 0.1)  # 确保基线不会太接近0
-        
-        # 计算deltaF/F0
-        delta_f = (raw_signal - safe_baseline)
-        delta_f_f0 = delta_f / (safe_baseline - background_noise)
-        delta_F_over_F0.iloc[roi_idx] = delta_f_f0
-        delta_F_over_F0.iloc[roi_idx] = delta_f_f0.astype(np.float32)
+    if is_nested:
+        if len(intervals) != len(segments):
+            raise ValueError("Number of interval sets does not match the number of segments.")
+        return [
+            [(int(start), int(end)) for start, end in segment_intervals]
+            for segment_intervals in intervals
+        ]
 
-        # data cleaning： exclude absolute values larger than 5, abnormal values-> mean value of values next to it
-        # delta_F_over_F0.iloc[roi_idx][np.abs(delta_f_f0) > 5] = delta_F_over_F0.iloc[roi_idx].rolling(window=3, center=True).mean()
-        # condition = np.abs(delta_f_f0) > 5
-        # delta_F_over_F0.loc[roi_idx, condition] = delta_F_over_F0.iloc[roi_idx].rolling(window=3, center=True).mean()
-        series = pd.Series(delta_f_f0, index=intensity.columns)
-        condition = np.abs(delta_f_f0) > 5
+    try:
+        flat_intervals = [(int(start), int(end)) for start, end in intervals]
+    except (TypeError, ValueError):
+        flat_intervals = []
+
+    segment_intervals = []
+    for segment_df in segments:
+        columns = segment_df.columns
+        offset = _infer_segment_offset(columns)
+        seg_length = segment_df.shape[1]
+        seg_end = offset + seg_length
+        seg_list = []
+        for start, end in flat_intervals:
+            if end <= offset or start >= seg_end:
+                continue
+            seg_start = max(start, offset) - offset
+            seg_end_adj = min(end, seg_end) - offset
+            if seg_end_adj > seg_start:
+                seg_list.append((seg_start, seg_end_adj))
+        segment_intervals.append(seg_list)
+
+    return segment_intervals
+
+
+def _clean_outliers(values, index, threshold=10):
+    """Replace large-magnitude spikes with interpolated values to stabilise dF/F."""
+    series = pd.Series(values, index=index, dtype=np.float64)
+    mask = np.abs(series.values) > threshold
+    if mask.any():
+        series = series.mask(mask)
+        series = series.interpolate(method='linear', limit_direction='both')
+        series = series.ffill().bfill()
+    return series.astype(np.float32)
+
+
+def _compute_segment_delta(intensity_segment, fitted_segment, background_noise, outlier_threshold=5):
+    """Compute delta F/F0 for a single segment."""
+    delta_df = pd.DataFrame(
+        np.nan,
+        index=intensity_segment.index,
+        columns=intensity_segment.columns,
+        dtype=np.float32,
+    )
+
+    for roi_idx in range(intensity_segment.shape[0]):
+        raw_signal = intensity_segment.iloc[roi_idx].to_numpy(dtype=np.float64)
+        baseline = fitted_segment.iloc[roi_idx].to_numpy(dtype=np.float64)
+
+        if baseline.size == 0:
+            continue
+
+        min_baseline = np.percentile(baseline, 5)
+        safe_baseline = np.maximum(baseline, min_baseline * 0.1)
+
+        denominator = safe_baseline - background_noise
+        denominator = np.where(
+            np.abs(denominator) < 1e-6,
+            np.where(denominator < 0, -1e-6, 1e-6),
+            denominator,
+        )
+
+        delta_f = raw_signal - safe_baseline
+        delta_f_f0 = delta_f / denominator
+
+        cleaned_series = _clean_outliers(delta_f_f0, intensity_segment.columns, threshold=outlier_threshold)
+        delta_df.iloc[roi_idx] = cleaned_series.to_numpy(dtype=np.float32)
+
+    return delta_df
         
-        if condition.any():
-            # 将异常值设为NaN
-            series[condition] = np.nan
-            # 使用线性插值填充，limit_direction='both'确保首尾也能插值
-            series = series.interpolate(method='linear', limit_direction='both')
-            
-            # 如果插值后仍有NaN（比如开头或结尾全是异常值），用前后向填充
-            series = series.ffill().bfill()
         
-        delta_F_over_F0.iloc[roi_idx] = series.astype(np.float32)
-    delta_F_over_F0 = delta_F_over_F0.astype(np.float32)
-    # 收集质量信息
+def calculate_delta_F_over_F0(
+    intensity,
+    intervals,
+    baseline_pre=6,
+    baseline_post=1,
+    vps_setting=1,
+    background_noise=102,
+    n_seq=None,
+):
+    """Compute delta F/F0 with optional segmentation support.
+
+    When ``n_seq`` is provided the intensity dataframe is split column-wise and
+    curve fitting is executed independently for each segment. The outputs are
+    then merged back to match the original dataframe layout. Fitting quality
+    metrics are tracked per segment and aggregated globally.
+    """
+
+    if intensity is None or intensity.empty:
+        empty_df = pd.DataFrame()
+        empty_quality = {
+            'r2_scores': [],
+            'model_types': [],
+            'mean_r2': np.nan,
+            'median_r2': np.nan,
+            'fit_params': [],
+            'segments': {},
+        }
+        return empty_df, empty_df, empty_quality
+
+    split_intensity_df_list = split_dataframe(intensity, n_seq)
+    if not split_intensity_df_list:
+        split_intensity_df_list = [intensity.copy()]
+
+    segment_intervals = _prepare_segment_intervals(intervals, split_intensity_df_list)
+
+    combined_delta = pd.DataFrame(
+        np.nan,
+        index=intensity.index,
+        columns=intensity.columns,
+        dtype=np.float32,
+    )
+    combined_fitted = pd.DataFrame(
+        np.nan,
+        index=intensity.index,
+        columns=intensity.columns,
+        dtype=np.float32,
+    )
+
+    all_r2_scores = []
+    all_model_types = []
+    all_fit_params = []
+    segment_quality = {}
+
+    for seg_idx, segment_df in enumerate(split_intensity_df_list):
+        original_columns = segment_df.columns
+        working_segment = segment_df.copy()
+        working_segment.columns = pd.RangeIndex(working_segment.shape[1])
+
+        seg_intervals = segment_intervals[seg_idx] if seg_idx < len(segment_intervals) else []
+
+        fitted_F0_df, fitted_params, r2_scores, model_types = fitted_F_base(
+            working_segment,
+            seg_intervals,
+            baseline_pre,
+            baseline_post,
+            vps_setting=vps_setting,
+        )
+        fitted_F0_df = fitted_F0_df.astype(np.float32, copy=False)
+        delta_segment = _compute_segment_delta(
+            working_segment,
+            fitted_F0_df,
+            background_noise=background_noise,
+        )
+
+        fitted_F0_df.columns = original_columns
+        delta_segment.columns = original_columns
+
+        combined_delta.loc[:, original_columns] = delta_segment
+        combined_fitted.loc[:, original_columns] = fitted_F0_df
+
+        seg_r2_list = [float(r) for r in list(r2_scores)] if len(r2_scores) else []
+        seg_model_types = list(model_types)
+        seg_fit_params = list(fitted_params)
+
+        segment_quality[seg_idx] = {
+            'r2_scores': seg_r2_list,
+            'model_types': seg_model_types,
+            'mean_r2': float(np.nanmean(seg_r2_list)) if seg_r2_list else np.nan,
+            'median_r2': float(np.nanmedian(seg_r2_list)) if seg_r2_list else np.nan,
+            'fit_params': seg_fit_params,
+            'column_labels': list(original_columns),
+            'intervals': seg_intervals,
+            'offset': _infer_segment_offset(original_columns),
+        }
+
+        all_r2_scores.extend(seg_r2_list)
+        all_model_types.extend(seg_model_types)
+        all_fit_params.extend(seg_fit_params)
+
+    combined_delta = combined_delta.loc[:, intensity.columns].astype(np.float32)
+    combined_fitted = combined_fitted.loc[:, intensity.columns].astype(np.float32)
+
+    global_mean_r2 = float(np.nanmean(all_r2_scores)) if all_r2_scores else np.nan
+    global_median_r2 = float(np.nanmedian(all_r2_scores)) if all_r2_scores else np.nan
+
     quality_info = {
-        'r2_scores': r2_scores,
-        'model_types': model_types,
-        'mean_r2': np.mean(r2_scores),
-        'median_r2': np.median(r2_scores),
-        'fit_params': fitted_params
+        'r2_scores': all_r2_scores,
+        'model_types': all_model_types,
+        'mean_r2': global_mean_r2,
+        'median_r2': global_median_r2,
+        'fit_params': all_fit_params,
+        'segments': segment_quality,
     }
-    
-    return delta_F_over_F0, fitted_F0_df, quality_info
+
+    return combined_delta, combined_fitted, quality_info
 
 def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting=1):
     # baseline_intervals = [(start - baseline_pre, start - baseline_post) for start, _ in intervals]
@@ -123,6 +352,19 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
             model_types.append("mean")
             continue
         
+        finite_mask = np.isfinite(y_data)
+        x_data = x_data[finite_mask]
+        y_data = y_data[finite_mask]
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            mean_val = np.nanmean(intensity.iloc[roi_idx])
+            fitted_F0 = np.ones(len(time_axis)) * mean_val
+            fitted_F0_curves.append(fitted_F0)
+            fitted_params.append([0, 0, mean_val])
+            r2_scores.append(0)
+            model_types.append("mean")
+            continue
+
         # 排序确保时间序列有序
         sorted_indices = np.argsort(x_data)
         x_data = x_data[sorted_indices]
@@ -131,9 +373,22 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
         # 去除异常值: 使用3-sigma规则
         y_mean = np.mean(y_data)
         y_std = np.std(y_data)
-        valid_idx = np.where(np.abs(y_data - y_mean) < 3 * y_std)[0]  # 3-sigma规则
+        if np.isnan(y_std) or y_std == 0:
+            valid_idx = np.arange(len(y_data))
+        else:
+            valid_idx = np.where(np.abs(y_data - y_mean) < 3 * y_std)[0]
+
         x_data = x_data[valid_idx]
         y_data = y_data[valid_idx]
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            mean_val = np.nanmean(intensity.iloc[roi_idx])
+            fitted_F0 = np.ones(len(time_axis)) * mean_val
+            fitted_F0_curves.append(fitted_F0)
+            fitted_params.append([0, 0, mean_val])
+            r2_scores.append(0)
+            model_types.append("mean")
+            continue
         
         # 自动选择最佳拟合模型
         best_func, best_params, r2 = fit_baseline(x_data, y_data, model_type='auto')
@@ -169,7 +424,6 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
     
     return fitted_F0_df, fitted_params, r2_scores, model_types
 
-# 拟合基线的函数
 def fit_baseline(x_data, y_data, model_type='exp'):
     """
     根据数据特性选择最佳拟合模型
@@ -180,80 +434,115 @@ def fit_baseline(x_data, y_data, model_type='exp'):
     - model_type: 模型类型，可选 'exp'(指数), 'poly'(多项式), 'auto'(自动选择)
     
     Returns:
-    - best_func: 最佳拟合函数
-    - best_params: 最佳拟合参数
-    - r2_score: 拟合优度
+    - best_func: 最佳拟合函数 (可调用, f(t, *params))
+    - best_params: 最佳拟合参数 (numpy 数组)
+    - r2_score: 拟合优度 (R²)
     """
-    # 指数衰减模型
+    
+    # --- 模型定义 ---
     def exponential_decay(t, a, b, c):
         return a * np.exp(-b * t) + c
     
-    # 多项式模型（3阶）
     def polynomial(t, a, b, c, d):
         return a * t**3 + b * t**2 + c * t + d
     
-    # 双指数模型（用于复杂衰减特征）
     def double_exponential(t, a1, b1, a2, b2, c):
         return a1 * np.exp(-b1 * t) + a2 * np.exp(-b2 * t) + c
     
+    # --- 内部辅助函数，用于拟合和评分 ---
+    def _fit_and_score(model, x, y, p0, bounds=(-np.inf, np.inf)):
+        try:
+            with warnings.catch_warnings():
+                # 忽略 curve_fit 可能抛出的 OptimizeWarning
+                warnings.simplefilter("ignore")
+                popt, _ = curve_fit(model, x, y, p0=p0, bounds=bounds, maxfev=10000)
+            
+            y_pred = model(x, *popt)
+            # 使用 sklearn 计算 R²，更稳健
+            r2 = r2_score(y, y_pred)
+            return model, popt, r2
+        except RuntimeError:
+            # 拟合失败
+            return None, None, -np.inf
+        except ValueError:
+            # 边界或 p0 维度不匹配等问题
+            return None, None, -np.inf
+
+    # --- 拟合逻辑 ---
     best_r2 = -np.inf
     best_func = None
     best_params = None
+
+    models_to_try = []
+
+    # 准备要尝试的模型、初始值和边界
+    if len(x_data) == 0 or len(y_data) == 0:
+        mean_val = float(np.nanmean(y_data) if len(y_data) else 0.0)
+        best_func = lambda t, c=mean_val: np.full_like(np.asarray(t), c, dtype=np.float64)
+        best_params = np.array([mean_val])
+        return best_func, best_params, 0.0
+
+    if len(x_data) == 1:
+        mean_val = float(y_data[0])
+        best_func = lambda t, c=mean_val: np.full_like(np.asarray(t), c, dtype=np.float64)
+        best_params = np.array([mean_val])
+        return best_func, best_params, 0.0
+
+    y_min, y_max, y_mean = np.min(y_data), np.max(y_data), np.mean(y_data)
     
     if model_type == 'exp' or model_type == 'auto':
-        try:
-            initial_guess = [np.max(y_data)*1.1, 0.001, np.min(y_data)*0.9]
-            popt, pcov = curve_fit(exponential_decay, x_data, y_data, p0=initial_guess, maxfev=10000)
-            y_pred = exponential_decay(x_data, *popt)
-            r2 = 1 - np.sum((y_data - y_pred)**2) / np.sum((y_data - np.mean(y_data))**2)
-            
-            if r2 > best_r2:
-                best_r2 = r2
-                best_func = exponential_decay
-                best_params = popt
-        except RuntimeError:
-            pass
-    
+        p0_exp = [y_max, 0.001, y_min]
+        # 边界 (a, b, c): 强制 b (衰减率) > 0
+        bounds_exp = ([-np.inf, 1e-9, -np.inf], [np.inf, np.inf, np.inf])
+        models_to_try.append(("exp", exponential_decay, p0_exp, bounds_exp))
+
     if model_type == 'poly' or model_type == 'auto':
-        try:
-            initial_guess = [0, 0, 0, np.mean(y_data)]
-            popt, pcov = curve_fit(polynomial, x_data, y_data, p0=initial_guess, maxfev=10000)
-            y_pred = polynomial(x_data, *popt)
-            r2 = 1 - np.sum((y_data - y_pred)**2) / np.sum((y_data - np.mean(y_data))**2)
-            
-            if r2 > best_r2:
-                best_r2 = r2
-                best_func = polynomial
-                best_params = popt
-        except RuntimeError:
-            pass
-    
-    if model_type == 'auto':
-        try:
-            initial_guess = [np.max(y_data)*0.6, 0.01, np.max(y_data)*0.4, 0.001, np.min(y_data)*0.9]
-            popt, pcov = curve_fit(double_exponential, x_data, y_data, p0=initial_guess, maxfev=10000)
-            y_pred = double_exponential(x_data, *popt)
-            r2 = 1 - np.sum((y_data - y_pred)**2) / np.sum((y_data - np.mean(y_data))**2)
-            
-            if r2 > best_r2:
-                best_r2 = r2
-                best_func = double_exponential
-                best_params = popt
-        except RuntimeError:
-            pass
-    
-    # 如果所有拟合都失败，使用移动平均作为备选
-    if best_func is None:
-        def moving_average(t, window_size):
-            # 实现移动平均函数
-            return np.convolve(y_data, np.ones(window_size)/window_size, mode='same')
+        p0_poly = [0, 0, 0, y_mean]
+        models_to_try.append(("poly", polynomial, p0_poly, (-np.inf, np.inf)))
         
-        window_size = max(3, len(x_data) // 10)  # 合理的窗口大小
-        best_func = lambda t, w=window_size: moving_average(t, w)
-        best_params = [window_size]
-        best_r2 = 0  # 无法直接计算R2
-    
+    if model_type == 'auto':
+        p0_double_exp = [y_max*0.5, 0.01, y_max*0.5, 0.001, y_min]
+        # 边界 (a1, b1, a2, b2, c): 强制 b1, b2 > 0
+        bounds_double_exp = ([-np.inf, 1e-9, -np.inf, 1e-9, -np.inf], 
+                             [np.inf, np.inf, np.inf, np.inf, np.inf])
+        models_to_try.append(("double_exp", double_exponential, p0_double_exp, bounds_double_exp))
+
+    # 循环尝试所有模型
+    for name, model, p0, bounds in models_to_try:
+        if len(x_data) < len(np.atleast_1d(p0)):
+            continue
+        func, params, r2 = _fit_and_score(model, x_data, y_data, p0, bounds)
+        if r2 > best_r2:
+            best_r2 = r2
+            best_func = func
+            best_params = params
+
+    # --- 稳健的后备方案 ---
+    if best_func is None:
+        if len(x_data) >= 2:
+            try:
+                best_params = np.polyfit(x_data, y_data, 1)
+
+                def linear_fit(t, a, b):
+                    return a * t + b
+
+                best_func = linear_fit
+                y_pred_lin = linear_fit(x_data, *best_params)
+                best_r2 = r2_score(y_data, y_pred_lin)
+
+            except np.linalg.LinAlgError:
+                mean_val = float(np.mean(y_data))
+                best_func = lambda t, c=mean_val: np.full_like(np.asarray(t), c, dtype=np.float64)
+                best_params = np.array([mean_val])
+                best_r2 = 0.0
+        else:
+            mean_val = float(np.mean(y_data))
+            best_func = lambda t, c=mean_val: np.full_like(np.asarray(t), c, dtype=np.float64)
+            best_params = np.array([mean_val])
+            best_r2 = 0.0
+
     return best_func, best_params, best_r2
+
 
 def fitting_curve_vs_original(intensity, key, intervals, fitted_F0_df, r2_scores, model_types, baseline_pre=10, baseline_post=0):
     """
