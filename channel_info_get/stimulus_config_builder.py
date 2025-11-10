@@ -6,6 +6,8 @@ import colorsys
 import itertools
 import json
 import os
+import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
@@ -46,6 +48,7 @@ def generate_config_from_channel_meanings(
     state_length: int = DEFAULT_STATE_LENGTH,
     buffer_prefixes: Optional[Iterable[Tuple[int, int, int]]] = None,
     stimulus_prefixes: Optional[Iterable[Tuple[int, int, int]]] = None,
+    use_rgba: bool = False,  # New parameter: use RGBA colors
 ) -> Dict[str, Mapping[str, str] | int]:
     """Generate a channel configuration and update stimulus metadata.
 
@@ -75,6 +78,9 @@ def generate_config_from_channel_meanings(
         Optional explicit control-bit prefixes (first three bits of the state
         vector). When omitted, sensible defaults are used for the chosen
         ``bit_mode``.
+    use_rgba:
+        If True, generate RGBA colors with varying alpha for same-category stimuli.
+        If False (default), generate HEX colors with varying brightness for same-category stimuli.
 
     Returns
     -------
@@ -103,7 +109,12 @@ def generate_config_from_channel_meanings(
     color_scheme = _load_json_file(color_scheme_path, default={})
 
     id_map = _assign_odor_ids(stimuli, odor_registry)
-    _update_color_scheme(id_map.values(), color_scheme)
+    
+    # Use grouped color generation based on use_rgba parameter
+    if use_rgba:
+        _update_color_scheme_rgba(id_map.values(), color_scheme, odor_registry)
+    else:
+        _update_color_scheme_hex(id_map.values(), color_scheme, odor_registry)
 
     _write_json_file(odor_json_path, odor_registry)
     _write_json_file(color_scheme_path, color_scheme)
@@ -125,6 +136,119 @@ def generate_config_from_channel_meanings(
     _write_json_file(config_path, config_payload)
 
     return config_payload
+
+
+def _group_identifiers_by_category(
+    identifiers: Iterable[str],
+    registry: Mapping[str, str]
+) -> Dict[Tuple[int, str], List[Tuple[int, str]]]:
+    """Group identifiers by batch and stimulus base name.
+    
+    Returns:
+        Dict mapping (batch, base_name) to list of (index, identifier) tuples
+    """
+    groups: Dict[Tuple[int, str], List[Tuple[int, str]]] = defaultdict(list)
+    
+    for identifier in identifiers:
+        try:
+            batch, index = _parse_identifier(identifier)
+            name = registry.get(identifier, "")
+            base_name, _ = split_stimulus_name(name)
+            group_key = (batch, base_name if base_name else name)
+            groups[group_key].append((index, identifier))
+        except OdorConfigError:
+            continue
+    
+    # Sort each group by index
+    for group_key in groups:
+        groups[group_key].sort(key=lambda x: x[0])
+    
+    return groups
+
+
+def _update_color_scheme_rgba(
+    identifiers: Iterable[str],
+    color_scheme: MutableMapping[str, str],
+    registry: Mapping[str, str]
+) -> None:
+    """Update color scheme with RGBA colors - same base color but varying alpha for same category."""
+    identifier_list = list(identifiers)
+    groups = _group_identifiers_by_category(identifier_list, registry)
+    
+    # Generate base colors for each category
+    category_base_colors: Dict[Tuple[int, str], Tuple[int, int, int]] = {}
+    existing_colors = set(color_scheme.values())
+    
+    for idx, group_key in enumerate(sorted(groups.keys())):
+        # Generate distinct base color for each category
+        hue = (idx * GOLDEN_RATIO_CONJUGATE) % 1.0
+        saturation = 0.7
+        value = 0.85
+        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+        base_rgb = tuple(int(c * 255) for c in rgb)
+        category_base_colors[group_key] = base_rgb
+    
+    # Assign RGBA colors with varying alpha within each group
+    for group_key, members in groups.items():
+        base_rgb = category_base_colors[group_key]
+        num_members = len(members)
+        
+        for member_idx, (_, identifier) in enumerate(members):
+            if identifier in color_scheme:
+                continue
+            
+            # Alpha varies from 1.0 (first) to 0.4 (last)
+            if num_members == 1:
+                alpha = 1.0
+            else:
+                alpha = 1.0 - (member_idx / (num_members - 1)) * 0.6
+            
+            rgba_str = f"rgba({base_rgb[0]}, {base_rgb[1]}, {base_rgb[2]}, {alpha:.2f})"
+            color_scheme[identifier] = rgba_str
+    
+    _sort_mapping_by_identifier(color_scheme)
+
+
+def _update_color_scheme_hex(
+    identifiers: Iterable[str],
+    color_scheme: MutableMapping[str, str],
+    registry: Mapping[str, str]
+) -> None:
+    """Update color scheme with HEX colors - same base hue but varying brightness for same category."""
+    identifier_list = list(identifiers)
+    groups = _group_identifiers_by_category(identifier_list, registry)
+    
+    # Generate base hue for each category
+    category_base_hues: Dict[Tuple[int, str], float] = {}
+    
+    for idx, group_key in enumerate(sorted(groups.keys())):
+        hue = (idx * GOLDEN_RATIO_CONJUGATE) % 1.0
+        category_base_hues[group_key] = hue
+    
+    # Assign HEX colors with varying brightness within each group
+    for group_key, members in groups.items():
+        base_hue = category_base_hues[group_key]
+        num_members = len(members)
+        
+        for member_idx, (_, identifier) in enumerate(members):
+            if identifier in color_scheme:
+                continue
+            
+            # Saturation and value vary to create visual distinction
+            if num_members == 1:
+                saturation = 0.7
+                value = 0.85
+            else:
+                # Value varies from 0.9 (brightest) to 0.5 (darkest)
+                value = 0.9 - (member_idx / (num_members - 1)) * 0.4
+                # Saturation varies slightly for better distinction
+                saturation = 0.65 + (member_idx / max(num_members - 1, 1)) * 0.2
+            
+            rgb = colorsys.hsv_to_rgb(base_hue, saturation, value)
+            hex_color = "#" + "".join(f"{int(channel * 255):02x}" for channel in rgb)
+            color_scheme[identifier] = hex_color
+    
+    _sort_mapping_by_identifier(color_scheme)
 
 
 def _normalize_channel_meanings(channel_meanings: Mapping[str, str] | Mapping[int, str]) -> Dict[str, str]:
@@ -262,17 +386,6 @@ def _find_first_available_index(used_indices: Set[int]) -> int:
     while index in used_indices:
         index += 1
     return index
-
-
-def _update_color_scheme(identifiers: Iterable[str], color_scheme: MutableMapping[str, str]) -> None:
-    existing_colors = set(color_scheme.values())
-    for i, identifier in enumerate(identifiers):
-        if identifier in color_scheme:
-            continue
-        color = _generate_distinct_color(existing_colors, seed=len(color_scheme) + i)
-        color_scheme[identifier] = color
-        existing_colors.add(color)
-    _sort_mapping_by_identifier(color_scheme)
 
 
 def _generate_distinct_color(existing_colors: Iterable[str], *, seed: int) -> str:
@@ -414,5 +527,3 @@ def _decode_16bit_numeric(key: str) -> int:
             raise OdorConfigError(
                 "16-bit mode requires decimal or hexadecimal keys for stimulus entries."
             ) from exc
-
-
