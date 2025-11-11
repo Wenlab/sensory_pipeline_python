@@ -273,8 +273,8 @@ def _process_ex_volumes(
 
 def transfer_tiff2npy(
     ex_folder_path,
-    ref_output_folder,
-    ex_output_folder,
+    ref_output_folder=None,
+    ex_output_folder=None,
     camera_type="red",
     show_progress=True
 ):
@@ -320,9 +320,9 @@ def transfer_tiff2npy(
     ...     camera_type="red"
     ... )
     """
-    nas_path = Path(ex_folder_path)
+    ex_folder = Path(ex_folder_path)
     
-    if not nas_path.exists():
+    if not ex_folder.exists():
         raise FileNotFoundError(f"NAS folder not found: {ex_folder_path}")
     
     print(f"\n{'='*70}")
@@ -335,7 +335,7 @@ def transfer_tiff2npy(
     print(f"{'='*70}\n")
     
     # Group folders by worm
-    worm_groups = _group_folders_by_worm(nas_path)
+    worm_groups = _group_folders_by_worm(ex_folder)
     
     if not worm_groups:
         print("No valid folders found. Exiting.")
@@ -359,28 +359,34 @@ def transfer_tiff2npy(
         date_info = _extract_date_info(sample_folders[0].name) if sample_folders else "202510"
         
         # Process reference volumes
-        if folders_dict['ref']:
-            _process_ref_volumes(
-                ref_folders=folders_dict['ref'],
-                ref_output_folder=ref_output_folder,
-                worm_lower=worm_lower,
-                date_info=date_info,
-                camera_type=camera_type,
-                volume_read_params=volume_read_params,
-                show_progress=show_progress
-            )
+        if ref_output_folder is not None:
+            if folders_dict['ref']:
+                _process_ref_volumes(
+                    ref_folders=folders_dict['ref'],
+                    ref_output_folder=ref_output_folder,
+                    worm_lower=worm_lower,
+                    date_info=date_info,
+                    camera_type=camera_type,
+                    volume_read_params=volume_read_params,
+                    show_progress=show_progress
+                )
+        else:
+            print("  Skipping reference volume processing (no ref_output_folder provided).")
         
         # Process experiment volumes
-        if folders_dict['ex']:
-            _process_ex_volumes(
-                ex_folders=folders_dict['ex'],
-                ex_output_folder=ex_output_folder,
-                worm_lower=worm_lower,
-                date_info=date_info,
-                camera_type=camera_type,
-                volume_read_params=volume_read_params,
-                show_progress=show_progress
-            )
+        if ex_output_folder is not None:
+            if folders_dict['ex']:
+                _process_ex_volumes(
+                    ex_folders=folders_dict['ex'],
+                    ex_output_folder=ex_output_folder,
+                    worm_lower=worm_lower,
+                    date_info=date_info,
+                    camera_type=camera_type,
+                    volume_read_params=volume_read_params,
+                    show_progress=show_progress
+                )
+        else:
+            print("  Skipping experiment volume processing (no ex_output_folder provided).")
     
     print(f"\n{'='*70}")
     print(f"✓ Transfer completed successfully!")
@@ -388,14 +394,14 @@ def transfer_tiff2npy(
 
 
 if __name__ == "__main__":
-    nas_folder_path = r"\\192.168.1.192\Odor\Jinghao-Wang\20251025_ZM11706_salt"
-    ref_output_folder = r"I:\WJH\infer\me\20251025\ZM\ref_volumes"
-    ex_output_folder = r"I:\WJH\infer\me\20251025\ZM\ex_volumes"
+    experiment_folder_path = r"\\192.168.1.192\Odor\Jinghao-Wang\20251105_bac"
+    ref_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20251104\red"
+    # ex_output_folder = r"I:\WJH\infer\me\20251025\ZM\red\ex_volumes"
     
     transfer_tiff2npy(
-        ex_folder_path=nas_folder_path,
+        ex_folder_path=experiment_folder_path,
         ref_output_folder=ref_output_folder,
-        ex_output_folder=ex_output_folder,
-        camera_type="green",
+        ex_output_folder=None,
+        camera_type="red",
         show_progress=True
     )
