@@ -57,7 +57,7 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
             neuron_pt_tuple[1] = np.load(aligned_neuron_pt_tuple)
     ex_green = image_process(ex_green)
     ex_red = image_process(ex_red)
-    output_shape = (2,18,1024,1024)
+    output_shape = kwargs.get("output_shape", ex_green.shape)
     mask = draw_neuron_box(neuron_pt_tuple[:2],output_shape=output_shape, save_dir=None)
     mask = mask.compute()
     return ex_green, ex_red, mask
