@@ -47,12 +47,27 @@ def load_worm_data_dict(
     
     stimulus_intervals, buffer_intervals = extract_intervals(experiment_df, key)
     intensity = pd.DataFrame(f[key]['intensity'][:])# this conversion is useless but Fit function is based on dataframe(which is our old data's form)
+    try:
+        raw_n_seq = np.asarray(f[key]['n_seg'][:]).ravel()
+        n_seq = []
+        for value in raw_n_seq:
+            try:
+                length = int(value)
+            except (TypeError, ValueError):
+                continue
+            if length > 0:
+                n_seq.append(length)
+        if not n_seq:
+            n_seq = None
+    except KeyError:
+        n_seq = None
     # print(f"Processing {key}...")
     # print(f"intensity_dtype: {intensity.dtypes}")
     # fit curve
     delta_F_over_F0, fitted_F0, quality_info = calculate_delta_F_over_F0(
         intensity, stimulus_intervals, vps_setting=vps_setting,
-        baseline_pre=baseline_pre, baseline_post=baseline_post, background_noise=background_noise
+        baseline_pre=baseline_pre, baseline_post=baseline_post, background_noise=background_noise,
+        n_seq=n_seq,
     )
     # print(f"delta_F_over_F0_dtype: {delta_F_over_F0.dtypes}")
 
