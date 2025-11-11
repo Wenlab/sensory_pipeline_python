@@ -2,6 +2,7 @@ import paramiko
 import os
 import re
 from tqdm import tqdm
+import stat
 
 def establish_ssh_connection(hostname, port, username, password=None, key_filename=None):
     """
@@ -102,42 +103,67 @@ def check_and_remove_useless_worms(sftp, remote_base_path, worm_list):
     print(f"Useful worms after filtering: {[f'w{num}' for num in useful_worms]}")
     return useful_worms
 
-def download_files_for_worm(sftp, remote_base_path, local_base_path, worm_num, files_to_download):
+def download_directory(sftp, remote_dir, local_dir):
     """
-    Downloads specified files for a single worm.
+    Downloads an entire directory from the remote server to the local machine.
+    
+    Args:
+        sftp: SFTP client object.
+        remote_dir (str): The remote directory to download.
+        local_dir (str): The local directory to download.
+    """
+    os.makedirs(local_dir, exist_ok=True)
+    for item in sftp.listdir_attr(remote_dir):
+        remote_item_path = os.path.join(remote_dir, item.filename).replace('\\', '/')
+        local_item_path = os.path.join(local_dir, item.filename)
+        
+        if stat.S_ISDIR(item.st_mode):
+            # It's a directory, recurse
+            download_directory(sftp, remote_item_path, local_item_path)
+        else:
+            # It's a file, download it
+            sftp.get(remote_item_path, local_item_path)
+
+def download_files_for_worm(sftp, remote_base_path, local_base_path, worm_num, items_to_download):
+    """
+    Downloads specified files and directories for a single worm.
     
     Args:
         sftp: SFTP client object.
         remote_base_path (str): The base path on the remote server.
         local_base_path (str): The base path on the local machine.
         worm_num (int): The worm number.
-        files_to_download (list): List of file paths to download.
+        items_to_download (list): List of file or directory paths to download.
     """
     remote_w_folder = os.path.join(remote_base_path, f"w{worm_num}").replace('\\', '/')
     local_w_folder = os.path.join(local_base_path, f"w{worm_num}")
     
     # Ensure local directory exists
     os.makedirs(local_w_folder, exist_ok=True)
-    # print(f"local directory: {local_w_folder}")
     
-    for file_path in files_to_download:
-        remote_file_path = os.path.join(remote_w_folder, file_path).replace('\\', '/')
-        
-        # Create subdirectories if needed
-        local_file_dir = os.path.join(local_w_folder, os.path.dirname(file_path))
-        if local_file_dir != local_w_folder:
-            os.makedirs(local_file_dir, exist_ok=True)
-        
-        local_file_path = os.path.join(local_w_folder, file_path)
+    for item_path in items_to_download:
+        remote_item_path = os.path.join(remote_w_folder, item_path).replace('\\', '/')
+        local_item_path = os.path.join(local_w_folder, item_path)
         
         try:
-            print(f"Downloading: {remote_file_path}")
-            sftp.get(remote_file_path, local_file_path)
-            # print(f"Successfully downloaded: {file_path}")
+            item_stat = sftp.stat(remote_item_path)
+            
+            if stat.S_ISDIR(item_stat.st_mode):
+                # It's a directory
+                print(f"Downloading directory: {remote_item_path}")
+                download_directory(sftp, remote_item_path, local_item_path)
+            else:
+                # It's a file
+                print(f"Downloading file: {remote_item_path}")
+                # Ensure parent directory exists locally
+                os.makedirs(os.path.dirname(local_item_path), exist_ok=True)
+                sftp.get(remote_item_path, local_item_path)
+
         except FileNotFoundError:
-            print(f"Error: Remote file not found - {remote_file_path}")
+            print(f"Error: Remote item not found - {remote_item_path}")
         except Exception as e:
-            print(f"Error downloading {remote_file_path}: {e}")
+            print(f"Error processing {remote_item_path}: {e}")
+
 
 def download_files_from_server(
     hostname,
@@ -167,8 +193,13 @@ def download_files_from_server(
     """
     if files_to_download is None:
         files_to_download = [
-            "synthetic_volume/aligned_volumes_mip.npy",
-            "synthetic_volume/all_neuron_pt_tuple.npy"
+            # "synthetic_volume/aligned_volumes_mip.npy",
+            # "synthetic_volume/all_neuron_pt_tuple.npy"
+            "output/synthetic_mip_results/aligned_volumes_mip.npy",
+            "output/synthetic_mip_results/neuron_pt_tuple.npy",
+            "output/ex_neuron_pt_tuple.npy",
+            "output/reference_inference_results/ref_neuron_pt_tuple_filled.npy",
+            "ref"
         ]
     
     # Establish connection
