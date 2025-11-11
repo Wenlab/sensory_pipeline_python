@@ -192,7 +192,7 @@ def save_dask_array_as_npy(dask_array, output_path):
     # Save the NumPy array to a .npy file
     np.save(output_path, numpy_array)
 
-def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
+def batch_process_folder(folder_path, output_path,t_start=0, t_end=2, **kwargs):
     # Get all subfolders in the directory
     subfolders = [f for f in Path(folder_path).iterdir() if f.is_dir()]
     processed_prefixes = set()
@@ -210,12 +210,12 @@ def batch_process_folder(folder_path, output_path,t_start=0, t_end=2):
                 red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
                 green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
                 volume_read_params = dict(
-                    z_start_frame_number=0,
-                    z_end_frame_number=17,
+                    z_start_frame_number=kwargs.get("z_start_frame_number",0),
+                    z_end_frame_number=kwargs.get("z_end_frame_number",17),
                     mod2_reverse=[False, False],
-                    img_width=1024,
-                    img_height=1024,
-                    frame_number_per_volume=20,
+                    img_width=kwargs.get("img_width",1024),
+                    img_height=kwargs.get("img_height",1024),
+                    frame_number_per_volume=kwargs.get("frame_number_per_volume",20),
                     img_dtype=np.uint16,
                 )
                 red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
