@@ -2,23 +2,39 @@ import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 import numpy as np
 import plotly.graph_objects as go
-
-def _color_to_rgba(color, alpha=0.1):
+from PIL import ImageColor
+def _color_to_rgba(color, alpha=None)-> str:
     """
-    使用 Matplotlib 将任何颜色格式转换为带透明度的 rgba 字符串。
-    
-    :param color: 颜色 (支持 'red', '#ff0000', '#f00', 'rgb(255,0,0)', (1,0,0))
-    :param alpha: 强制设置的透明度
-    :return: 'rgba(255, 0, 0, 0.1)' 格式的字符串
+    将颜色字符串转换为 RGB 或 RGBA 格式。
+    支持的输入格式为ImageColor.getrgb(color)可以解析的格式
+    :param color: 颜色字符串，例如 'red', '#ff0000', 'rgb(255,0,0)', 'hsl(0,100%,50%)' 等。若格式中含有a值, 则返回rgba格式。
+    :param alpha: 可选的透明度值，范围为 0-255。如果提供了该值, 则返回 RGBA 格式。
+    :return: RGB 或 RGBA 格式的字符串，例如 'rgb(255,0,0)' 或 'rgba(255,0,0,128)'。
+    :raises ValueError: 如果颜色字符串无法解析或格式不正确。
+    例子:
+    >>> to_rgb('red')
+    'rgb (255, 0, 0)'
+    >>> to_rgb('#00ff00', 128)
+    'rgba (0, 255, 0, 128)'
+    >>> to_rgb('hsl(240,100%,50%)')
+    'rgb (0, 0, 255)'
+    >>> to_rgb('hsl(240,100%,50%)', 200)
+    'rgba (0, 0, 255, 200)'
     """
-    # 1. 将任何格式的颜色转换为 (R, G, B, A) 元组，值范围 0-1
-    #    (注意：mcolors.to_rgba 会保留原始的 alpha)
-    r, g, b, _ = mcolors.to_rgba(color)
-    
-    # 2. 转换回 0-255 并应用新的 alpha
-    r_int, g_int, b_int = int(r * 255), int(g * 255), int(b * 255)
-    
-    return f'rgba({r_int},{g_int},{b_int},{alpha})'
+    try:
+        rgb_tuple = ImageColor.getrgb(color)
+        if len(rgb_tuple) == 3 and alpha is None:
+            return f"rgb {rgb_tuple}"
+        elif len(rgb_tuple) == 4:
+            if alpha is not None:
+                rgb_tuple = rgb_tuple[:3] + (alpha,)
+            return f"rgba {rgb_tuple}"
+        elif len(rgb_tuple) == 3 and alpha is not None:
+            return f"rgba {rgb_tuple + (alpha,)}"
+        else:
+            raise ValueError(f"无法解析颜色: {color}")
+    except Exception as e:
+        raise ValueError(f"无法解析颜色: {color}") from e
 
 def add_regions_to_fig(fig, intervals, stimulus_list=None, 
                          name=None, color='rgba(170,0,0,0.1)', 
@@ -34,7 +50,18 @@ def add_regions_to_fig(fig, intervals, stimulus_list=None,
     :param color: (单一模式) 区域颜色。或 (多重模式) 颜色列表
     :param alpha: 强制设置的透明度
     """
-    
+    # add hover
+    if 'yaxis2' not in fig.layout:
+        fig.update_layout(
+            yaxis2=dict(
+                range=[0, 1],
+                overlaying='y',
+                visible=False,
+                showgrid=False,
+                showticklabels=False
+            )
+        )
+
     color_map = {}
     
     if stimulus_list is None:
@@ -78,6 +105,16 @@ def add_regions_to_fig(fig, intervals, stimulus_list=None,
             showlegend=False,
             **kwargs
         )
+        fig.add_trace(go.Scatter(
+                x=[start, end],
+                y=[0.99, 0.99],
+                yaxis='y2',
+                mode='lines',
+                line=dict(color='rgba(0,0,0,0)', width=5),
+                hovertemplate=f'<b>Stimulus: {stim_name}</b><br>Start: {start:.2f}<br>End: {end:.2f}<extra></extra>',
+                hoverlabel=dict(align='left'),
+                showlegend=False
+            ))
 
     if showlegend:
         unique_stimuli = sorted(set(names_to_loop))
@@ -96,7 +133,6 @@ def add_regions_to_fig(fig, intervals, stimulus_list=None,
                 hoverinfo='skip'
             ))
 
-
 def draw_waterfall_plot(x, y_dict, y_offset, id_list=None, fill_area=True, fig=None, **kwargs):
     if fig is None:
         fig = go.FigureWidget()
@@ -104,33 +140,45 @@ def draw_waterfall_plot(x, y_dict, y_offset, id_list=None, fill_area=True, fig=N
     #     fig.data = ()  # 清空现有数据
     if id_list is None:
         id_list = sorted(y_dict.keys())
-    colors = cm.hsv(np.linspace(0, 1, len(id_list)))  # 使用渐变色
+    
+    id_list = list(reversed(id_list)) # 反转顺序以从下到上绘制
+    # colors = cm.hsv(np.linspace(0, 1, len(id_list)))  # 使用渐变色
+    colors = [_color_to_rgba(f'hsl({i*330/len(id_list)},100%,{kwargs.get('brightness', "35%")})',0.8) for i in range(len(id_list))]
     id_name_dict = kwargs.pop('id_name_dict', {})
     # ymax = 0
     traces = []
     for i, neuron_id in enumerate(id_list):
         y = y_dict[int(neuron_id)]
-        y_with_offset = y - min(y) + y_offset * (len(id_list) - i)
+        # y_with_offset = y - min(y) + y_offset * (len(id_list) - i)
+        y_with_offset = y - min(y) + y_offset * i
         # ymax = max(ymax, y_with_offset.max())
         # 创建辅助轨迹 - 目标水平线
         if fill_area:
             traces.append(go.Scatter(
                 x=x,
-                y=[y_offset * (len(id_list) - i)] * len(x),  # 创建一条与x等长的水平线
+                # y=[y_offset * (len(id_list) - i)] * len(x),  # 创建一条与x等长的水平线
+                y=[y_offset * i] * len(x),
                 mode='lines',
                 line=dict(color='rgba(255,255,255,0)'),  # 完全透明
                 showlegend=False
             ))
+        display_name = neuron_id
+        if neuron_id in id_name_dict:
+            name_from_dict = str(id_name_dict[neuron_id])
+
+            if not name_from_dict.isdigit():
+                display_name = f"{name_from_dict} ({neuron_id})"
         traces.append(
             go.Scatter(
                 x=x,
                 y=y_with_offset,
                 line=dict(
                     width=1.5,
-                    color=f"rgba({colors[i][0]*255}, {colors[i][1]*255}, {colors[i][2]*255}, 0.8)",
+                    # color=f"rgba({colors[i][0]*255}, {colors[i][1]*255}, {colors[i][2]*255}, 0.8)",
+                    color=colors[i],
                 ),
-                name=f"Neuron: {neuron_id if neuron_id not in id_name_dict else id_name_dict[neuron_id]}",
-                hovertemplate=f"Neuron: {neuron_id if neuron_id not in id_name_dict else str(id_name_dict[neuron_id])+"("+str(neuron_id)+")"}"+'<br>data: %{customdata:.2f}<br>volume: %{x}<extra></extra>',
+                name=f"Neuron: {display_name}",
+                hovertemplate=f"Neuron: {display_name}"+'<br>data: %{customdata:.2f}<br>volume: %{x}<extra></extra>',
                 customdata=y,
                 fill="tonexty" if fill_area else 'none',
                 **kwargs,
@@ -141,6 +189,9 @@ def draw_waterfall_plot(x, y_dict, y_offset, id_list=None, fill_area=True, fig=N
         template="simple_white", # "plotly_dark"
         paper_bgcolor="white", # "black"
         plot_bgcolor="white", # "black"
+        # template="plotly_dark", # "plotly_dark"
+        # paper_bgcolor="black", # "black"
+        # plot_bgcolor="black", # "black"
         showlegend=True,
         margin=dict(l=0, r=0, b=0, t=0),  # Adjusted top margin to hide titles
         # yaxis=dict(range=[0, ymax])
