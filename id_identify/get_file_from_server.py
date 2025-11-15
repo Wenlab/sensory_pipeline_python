@@ -3,6 +3,86 @@ import os
 import re
 from tqdm import tqdm
 import stat
+from pathlib import Path
+import numpy as np
+import os
+import sys
+if __name__ == "__main__":
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from utils.read_vols_using_dask import lazy_read_tiff_stack
+from in_experiment.transfer_tiff2npy import transfer_tiff2npy
+
+def save_dask_array_as_npy(dask_array, output_path):
+    # Convert the Dask array to a NumPy array
+    numpy_array = dask_array.compute()
+    # Ensure the output directory exists
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Save the NumPy array to a .npy file
+    np.save(output_path, numpy_array)
+
+def get_ex_ref_image(folder_path, output_path, t_start=0, t_end=2, **kwargs):
+    # Get all subfolders in the directory
+    subfolders = [f for f in Path(folder_path).iterdir() if f.is_dir()]
+    processed_prefixes = set()
+    for subfolder in subfolders:
+        prefix = subfolder.name.split("_")[0]
+        if prefix not in processed_prefixes:
+            processed_prefixes.add(prefix)
+            # Process each subfolder
+            # if subfolder startswith("w"):
+            if subfolder.name.startswith("w"):
+                # Process the subfolder
+                print(f"Processing {subfolder}...")
+                tiff_dir_name = os.path.join(folder_path, subfolder.name)
+                exp_path = tiff_dir_name
+                red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
+                green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
+                volume_read_params = dict(
+                    z_start_frame_number=kwargs.get("z_start_frame_number",0),
+                    z_end_frame_number=kwargs.get("z_end_frame_number",17),
+                    mod2_reverse=[False, False],
+                    img_width=kwargs.get("img_width",1024),
+                    img_height=kwargs.get("img_height",1024),
+                    frame_number_per_volume=kwargs.get("frame_number_per_volume",20),
+                    img_dtype=np.uint16,
+                )
+                red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
+                green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
+                save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "red.npy"))
+                save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "green.npy"))
+            else:
+                print(f"Skipping {subfolder}")
+    # convert ref images to npy using transfer_tiff2npy
+    volume_read_params = dict(
+        z_start_frame_number=kwargs.get("z_start_frame_number",0),
+        z_end_frame_number=kwargs.get("z_end_frame_number",17),
+        mod2_reverse=[False, False],
+        img_width=kwargs.get("img_width",1024),
+        img_height=kwargs.get("img_height",1024),
+        frame_number_per_volume=kwargs.get("frame_number_per_volume",20),
+        img_dtype=np.uint16,
+    )
+    red_output_folder = os.path.join(output_path, "ref_volume_red")
+    green_output_folder = os.path.join(output_path, "ref_volume_green")
+    transfer_tiff2npy(
+        ex_folder_path=folder_path,
+        ref_output_folder=red_output_folder,
+        ex_output_folder=None,
+        camera_type="red",
+        show_progress=True,
+        volume_read_params=volume_read_params
+    )
+    transfer_tiff2npy(
+        ex_folder_path=folder_path,
+        ref_output_folder=green_output_folder,
+        ex_output_folder=None,
+        camera_type="green",
+        show_progress=True,
+        volume_read_params=volume_read_params
+    )
+
 
 def establish_ssh_connection(hostname, port, username, password=None, key_filename=None):
     """
@@ -198,8 +278,7 @@ def download_files_from_server(
             "output/synthetic_mip_results/aligned_volumes_mip.npy",
             "output/synthetic_mip_results/neuron_pt_tuple.npy",
             "output/ex_neuron_pt_tuple.npy",
-            "output/reference_inference_results/ref_neuron_pt_tuple_filled.npy",
-            "ref"
+            "output/reference_inference_results/ref_neuron_pt_tuple_filled.npy"
         ]
     
     # Establish connection
