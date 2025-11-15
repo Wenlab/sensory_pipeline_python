@@ -1,7 +1,3 @@
-if __name__ == "__main":
-    tiff_dir_name = r"\\192.168.1.192/worm-tools/Jinghao-Wang/tea_experiment/20250421_EGCG/w1_2025-04-21_11-39-40/"
-    output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20250421_EGCG\w1\volumes"
-#%%
 import os
 import shutil
 import numpy as np
@@ -182,70 +178,6 @@ def show_volumes_in_napari(
         green_translate=green_translate,
     )
     return viewer
-
-def save_dask_array_as_npy(dask_array, output_path):
-    # Convert the Dask array to a NumPy array
-    numpy_array = dask_array.compute()
-    # Ensure the output directory exists
-    output_dir = Path(output_path).parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-    # Save the NumPy array to a .npy file
-    np.save(output_path, numpy_array)
-
-def batch_process_folder(folder_path, output_path,t_start=0, t_end=2, labjack=None):
-    # Get labjack data from NAS
-    if labjack is not None:
-        print(f"Downloading labjack data from {folder_path} to {output_path}...")
-        download_labjack_data_from_nas(folder_path, output_path)
-
-    # Get all subfolders in the directory
-    subfolders = [f for f in Path(folder_path).iterdir() if f.is_dir()]
-    for subfolder in subfolders:
-        # Process each subfolder
-        # if subfolder startswith("w"):
-        if subfolder.name.startswith("w"):
-            # Process the subfolder
-            print(f"Processing {subfolder}...")
-            tiff_dir_name = os.path.join(folder_path, subfolder.name)
-            exp_path = tiff_dir_name
-            red_tiff_path_ = rf"{exp_path}\0_Camera-Red_VSC-10629"
-            green_tiff_path_ = rf"{exp_path}\1_Camera-Green_VSC-09321"
-            volume_read_params = dict(
-                z_start_frame_number=0,
-                z_end_frame_number=17,
-                mod2_reverse=[False, False],
-                img_width=1024,
-                img_height=1024,
-                frame_number_per_volume=20,
-                img_dtype=np.uint16,
-            )
-            red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
-            green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
-            save_dask_array_as_npy(red[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "red.npy"))
-            save_dask_array_as_npy(green[t_start:t_end], os.path.join(output_path, subfolder.name.split("_")[0], "green.npy"))
-
-def download_labjack_data_from_nas(folder_path, output_path):
-    """
-    labjack data is stored in the format: folder_path*labjack*, it's stored in a folder with "labjack" in the name, usually only one folder.
-    This function will download the labjack data from the nas to the output_path.
-    """
-    print(f"Downloading labjack data from {folder_path} to {output_path}...")
-    # first check if the labjack folder exists
-    labjack_folder = Path(folder_path).glob("*labjack*")
-    if not labjack_folder:
-        return
-    labjack_folder = next(labjack_folder)  # Get the first matching folder
-    # Check if the folder is a directory
-    if not labjack_folder.is_dir():
-        print(f"{labjack_folder} is not a directory")
-        return
-    # Create the output directory if it doesn't exist
-    output_path = Path(output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
-    # Copy the labjack folder to the output path
-    for item in labjack_folder.iterdir():
-        if item.is_file():
-            shutil.copy2(item, output_path / item.name)
             
 def save_volumes_with_vol_range(
     tiff_path_,

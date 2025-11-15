@@ -6,6 +6,8 @@ import colorsys
 import itertools
 import json
 import os
+import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
@@ -46,6 +48,8 @@ def generate_config_from_channel_meanings(
     state_length: int = DEFAULT_STATE_LENGTH,
     buffer_prefixes: Optional[Iterable[Tuple[int, int, int]]] = None,
     stimulus_prefixes: Optional[Iterable[Tuple[int, int, int]]] = None,
+    use_rgba: bool = False,  # New parameter: use RGBA colors
+    identifier_prefix: str = "b",  # Default prefix when channel meanings do not specify one
 ) -> Dict[str, Mapping[str, str] | int]:
     """Generate a channel configuration and update stimulus metadata.
 
@@ -75,6 +79,15 @@ def generate_config_from_channel_meanings(
         Optional explicit control-bit prefixes (first three bits of the state
         vector). When omitted, sensible defaults are used for the chosen
         ``bit_mode``.
+    use_rgba:
+        If True, generate RGBA colors with varying alpha for same-category stimuli.
+        If False (default), generate HEX colors with varying brightness for same-category stimuli.
+    identifier_prefix:
+        Default single-character prefix for compound identifiers. Individual
+        channel entries may override the prefix by appending a single-letter
+        token (e.g., ``"c12 1night b"``) to the stimulus description. When the
+        stimulus already exists in the registry, the stored prefix is reused and
+        any channel-level override is ignored.
 
     Returns
     -------
@@ -84,11 +97,11 @@ def generate_config_from_channel_meanings(
     Notes
     -----
     The function updates ``stimulus.json`` and ``stimulus_color_scheme.json`` in
-    place. Identifiers follow the ``b{batch}_{index}`` format and continue from
-    the highest existing entry.
+    place. Identifiers follow the ``{prefix}{batch}_{index}`` format and continue
+    from the highest existing entry for each prefix family.
     """
 
-    normalized_channel_meanings = _normalize_channel_meanings(channel_meanings)
+    normalized_channel_meanings, channel_prefixes = _normalize_channel_meanings(channel_meanings)
     stimuli = _extract_stimuli(normalized_channel_meanings)
 
     if not stimuli:
@@ -102,8 +115,18 @@ def generate_config_from_channel_meanings(
     odor_registry = _load_json_file(odor_json_path, default={})
     color_scheme = _load_json_file(color_scheme_path, default={})
 
-    id_map = _assign_odor_ids(stimuli, odor_registry)
-    _update_color_scheme(id_map.values(), color_scheme)
+    id_map = _assign_odor_ids(
+        stimuli,
+        odor_registry,
+        channel_prefixes=channel_prefixes,
+        default_prefix=identifier_prefix,
+    )
+    
+    # Use grouped color generation based on use_rgba parameter
+    if use_rgba:
+        _update_color_scheme_rgba(id_map.values(), color_scheme, odor_registry)
+    else:
+        _update_color_scheme_hex(id_map.values(), color_scheme, odor_registry)
 
     _write_json_file(odor_json_path, odor_registry)
     _write_json_file(color_scheme_path, color_scheme)
@@ -127,11 +150,144 @@ def generate_config_from_channel_meanings(
     return config_payload
 
 
-def _normalize_channel_meanings(channel_meanings: Mapping[str, str] | Mapping[int, str]) -> Dict[str, str]:
+def _split_name_and_prefix(raw_value: str) -> Tuple[str, Optional[str]]:
+    """Separate an optional single-letter prefix token from the stimulus name."""
+    stripped = raw_value.strip()
+    if not stripped:
+        return stripped, None
+
+    parts = stripped.rsplit(" ", 1)
+    if len(parts) == 2:
+        candidate = parts[1].strip()
+        if len(candidate) == 1 and candidate.isalpha():
+            return parts[0].strip(), candidate.lower()
+
+    return stripped, None
+
+
+def _group_identifiers_by_category(
+    identifiers: Iterable[str],
+    registry: Mapping[str, str],
+) -> Dict[Tuple[str, int, str], List[Tuple[int, str]]]:
+    """Group identifiers by prefix, batch, and stimulus base name."""
+
+    groups: Dict[Tuple[str, int, str], List[Tuple[int, str]]] = defaultdict(list)
+
+    for identifier in identifiers:
+        try:
+            prefix, batch, index = _parse_identifier(identifier)
+            name = registry.get(identifier, "")
+            base_name, _ = split_stimulus_name(name)
+            group_key = (prefix, batch, base_name if base_name else name)
+            groups[group_key].append((index, identifier))
+        except OdorConfigError:
+            continue
+
+    for group_key in groups:
+        groups[group_key].sort(key=lambda item: item[0])
+
+    return groups
+
+
+def _update_color_scheme_rgba(
+    identifiers: Iterable[str],
+    color_scheme: MutableMapping[str, str],
+    registry: Mapping[str, str],
+) -> None:
+    """Update color scheme with RGBA colors - same base color but varying alpha for same category."""
+    identifier_list = list(identifiers)
+    groups = _group_identifiers_by_category(identifier_list, registry)
+    
+    # Generate base colors for each category
+    category_base_colors: Dict[Tuple[str, int, str], Tuple[int, int, int]] = {}
+    
+    for idx, group_key in enumerate(sorted(groups.keys())):
+        # Generate distinct base color for each category
+        hue = (idx * GOLDEN_RATIO_CONJUGATE) % 1.0
+        saturation = 0.7
+        value = 0.85
+        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+        base_rgb = tuple(int(c * 255) for c in rgb)
+        category_base_colors[group_key] = base_rgb
+    
+    # Assign RGBA colors with varying alpha within each group
+    for group_key, members in groups.items():
+        base_rgb = category_base_colors[group_key]
+        num_members = len(members)
+        
+        for member_idx, (_, identifier) in enumerate(members):
+            if identifier in color_scheme:
+                continue
+            
+            # Alpha varies from 1.0 (first) to 0.4 (last)
+            if num_members == 1:
+                alpha = 1.0
+            else:
+                alpha = 1.0 - (member_idx / (num_members - 1)) * 0.6
+            
+            rgba_str = f"rgba({base_rgb[0]}, {base_rgb[1]}, {base_rgb[2]}, {alpha:.2f})"
+            color_scheme[identifier] = rgba_str
+    
+    _sort_mapping_by_identifier(color_scheme)
+
+
+def _update_color_scheme_hex(
+    identifiers: Iterable[str],
+    color_scheme: MutableMapping[str, str],
+    registry: Mapping[str, str],
+) -> None:
+    """Update color scheme with HEX colors - same base hue but varying brightness for same category."""
+    identifier_list = list(identifiers)
+    groups = _group_identifiers_by_category(identifier_list, registry)
+    
+    # Generate base hue for each category
+    category_base_hues: Dict[Tuple[str, int, str], float] = {}
+    
+    for idx, group_key in enumerate(sorted(groups.keys())):
+        hue = (idx * GOLDEN_RATIO_CONJUGATE) % 1.0
+        category_base_hues[group_key] = hue
+    
+    # Assign HEX colors with varying brightness within each group
+    for group_key, members in groups.items():
+        base_hue = category_base_hues[group_key]
+        num_members = len(members)
+        
+        for member_idx, (_, identifier) in enumerate(members):
+            if identifier in color_scheme:
+                continue
+            
+            # Saturation and value vary to create visual distinction
+            if num_members == 1:
+                saturation = 0.7
+                value = 0.85
+            else:
+                # Value varies from 0.9 (brightest) to 0.5 (darkest)
+                value = 0.9 - (member_idx / (num_members - 1)) * 0.4
+                # Saturation varies slightly for better distinction
+                saturation = 0.65 + (member_idx / max(num_members - 1, 1)) * 0.2
+            
+            rgb = colorsys.hsv_to_rgb(base_hue, saturation, value)
+            hex_color = "#" + "".join(f"{int(channel * 255):02x}" for channel in rgb)
+            color_scheme[identifier] = hex_color
+    
+    _sort_mapping_by_identifier(color_scheme)
+
+
+def _normalize_channel_meanings(
+    channel_meanings: Mapping[str, str] | Mapping[int, str]
+) -> Tuple[Dict[str, str], Dict[str, str]]:
     normalized: Dict[str, str] = {}
+    prefixes: Dict[str, str] = {}
+
     for key, value in channel_meanings.items():
-        normalized[str(key)] = value
-    return normalized
+        string_key = str(key)
+        value_str = value if isinstance(value, str) else str(value)
+        name, prefix = _split_name_and_prefix(value_str)
+        normalized[string_key] = name
+        if prefix:
+            prefixes[string_key] = prefix
+
+    return normalized, prefixes
 
 
 def _extract_stimuli(channel_meanings: Mapping[str, str]) -> List[OdorEntry]:
@@ -159,10 +315,13 @@ def _write_json_file(path: Path, payload: Mapping[str, object]) -> None:
 def _assign_odor_ids(
     stimuli: Iterable[OdorEntry],
     registry: MutableMapping[str, str],
+    *,
+    channel_prefixes: Mapping[str, str],
+    default_prefix: str,
 ) -> Dict[str, str]:
     existing_by_name = {name: identifier for identifier, name in registry.items()}
-    group_registry, max_batch = _build_group_registry(registry)
-    next_batch = max_batch + 1
+    group_registry, max_batch_by_prefix = _build_group_registry(registry)
+    next_batch_by_prefix: Dict[str, int] = dict(max_batch_by_prefix)
 
     assigned: Dict[str, str] = {}
 
@@ -181,22 +340,35 @@ def _assign_odor_ids(
         if not group_entries:
             continue
 
-        group_info = group_registry.get(group_name)
-        if group_info is None:
-            group_info = {"batch": next_batch, "indices": set()}
-            group_registry[group_name] = group_info
-            next_batch += 1
-
-        batch = group_info["batch"]
-        used_indices = cast(Set[int], group_info["indices"])
+        prefix_registry = group_registry.get(group_name, {})
 
         for entry in group_entries:
             if entry.name in existing_by_name:
                 assigned[entry.identifier] = existing_by_name[entry.name]
                 continue
 
+            specified_prefix = channel_prefixes.get(entry.identifier)
+            if specified_prefix:
+                desired_prefix = specified_prefix.lower()
+            elif prefix_registry:
+                desired_prefix = sorted(prefix_registry.keys())[0]
+            else:
+                desired_prefix = default_prefix.lower()
+
+            prefix_info = prefix_registry.get(desired_prefix)
+            if prefix_info is None:
+                batch = next_batch_by_prefix.get(desired_prefix, 0) + 1
+                prefix_info = {"batch": batch, "indices": set()}
+                prefix_registry[desired_prefix] = prefix_info
+                next_batch_by_prefix[desired_prefix] = batch
+                group_registry[group_name] = prefix_registry
+            else:
+                batch = cast(int, prefix_info["batch"])
+
+            used_indices = cast(Set[int], prefix_info["indices"])
             index = _find_first_available_index(used_indices)
-            identifier = _format_identifier(batch, index)
+            identifier = _format_identifier(desired_prefix, batch, index)
+
             registry[identifier] = entry.name
             assigned[entry.identifier] = identifier
             existing_by_name[entry.name] = identifier
@@ -206,55 +378,60 @@ def _assign_odor_ids(
     return assigned
 
 
-def _parse_identifier(identifier: str) -> Tuple[int, int]:
-    if not identifier.startswith("b") or "_" not in identifier:
+_IDENTIFIER_PATTERN = re.compile(r"^(?P<prefix>[A-Za-z])(?P<batch>\d+)_(?P<index>\d+)$")
+
+
+def _parse_identifier(identifier: str) -> Tuple[str, int, int]:
+    match = _IDENTIFIER_PATTERN.fullmatch(identifier)
+    if not match:
         raise OdorConfigError(f"Unsupported stimulus identifier format: {identifier}")
-    try:
-        batch_part, index_part = identifier[1:].split("_", 1)
-        return int(batch_part), int(index_part)
-    except ValueError as exc:
-        raise OdorConfigError(f"Invalid stimulus identifier: {identifier}") from exc
+
+    prefix = match.group("prefix").lower()
+    batch = int(match.group("batch"))
+    index = int(match.group("index"))
+    return prefix, batch, index
 
 
-def _format_identifier(batch: int, index: int) -> str:
-    return f"b{batch}_{index}"
+def _format_identifier(prefix: str, batch: int, index: int) -> str:
+    if len(prefix) != 1 or not prefix.isalpha():
+        raise OdorConfigError(f"Invalid identifier prefix: {prefix}")
+    return f"{prefix.lower()}{batch}_{index}"
 
 
-def _identifier_sort_key(identifier: str) -> Tuple[int, int]:
-    return _parse_identifier(identifier)
+def _identifier_sort_key(identifier: str) -> Tuple[str, int, int]:
+    prefix, batch, index = _parse_identifier(identifier)
+    return prefix, batch, index
 
 
 def _sort_mapping_by_identifier(mapping: MutableMapping[str, str]) -> None:
-    ordered = dict(
-        sorted(mapping.items(), key=lambda item: _identifier_sort_key(item[0]))
-    )
+    ordered = dict(sorted(mapping.items(), key=lambda item: _identifier_sort_key(item[0])))
     mapping.clear()
     mapping.update(ordered)
 
 
 def _build_group_registry(
-    registry: Mapping[str, str]
-) -> Tuple[Dict[str, Dict[str, object]], int]:
-    group_registry: Dict[str, Dict[str, object]] = {}
-    max_batch = 0
+    registry: Mapping[str, str],
+) -> Tuple[Dict[str, Dict[str, Dict[str, object]]], Dict[str, int]]:
+    group_registry: Dict[str, Dict[str, Dict[str, object]]] = {}
+    max_batch_by_prefix: Dict[str, int] = {}
+
     for identifier, name in registry.items():
-        batch, index = _parse_identifier(identifier)
-        max_batch = max(max_batch, batch)
+        prefix, batch, index = _parse_identifier(identifier)
+        max_batch_by_prefix[prefix] = max(max_batch_by_prefix.get(prefix, 0), batch)
 
         group_name, _ = split_stimulus_name(name)
         group_key = group_name or name
 
-        info = group_registry.setdefault(
-            group_key, {"batch": batch, "indices": set()}
-        )
+        prefix_map = group_registry.setdefault(group_key, {})
+        info = prefix_map.setdefault(prefix, {"batch": batch, "indices": set()})
 
         if info["batch"] != batch:
-            info["batch"] = min(info["batch"], batch)
+            info["batch"] = min(cast(int, info["batch"]), batch)
 
         indices = cast(Set[int], info["indices"])
         indices.add(index)
 
-    return group_registry, max_batch
+    return group_registry, max_batch_by_prefix
 
 
 def _find_first_available_index(used_indices: Set[int]) -> int:
@@ -262,17 +439,6 @@ def _find_first_available_index(used_indices: Set[int]) -> int:
     while index in used_indices:
         index += 1
     return index
-
-
-def _update_color_scheme(identifiers: Iterable[str], color_scheme: MutableMapping[str, str]) -> None:
-    existing_colors = set(color_scheme.values())
-    for i, identifier in enumerate(identifiers):
-        if identifier in color_scheme:
-            continue
-        color = _generate_distinct_color(existing_colors, seed=len(color_scheme) + i)
-        color_scheme[identifier] = color
-        existing_colors.add(color)
-    _sort_mapping_by_identifier(color_scheme)
 
 
 def _generate_distinct_color(existing_colors: Iterable[str], *, seed: int) -> str:
@@ -414,5 +580,3 @@ def _decode_16bit_numeric(key: str) -> int:
             raise OdorConfigError(
                 "16-bit mode requires decimal or hexadecimal keys for stimulus entries."
             ) from exc
-
-

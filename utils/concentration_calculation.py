@@ -23,14 +23,14 @@ class ConcentrationCalculator:
         Returns:
             float: Final molar concentration in µM (micromolar)
         """
-        # Convert initial concentration from mg/mL to mM
+        # Convert initial concentration from mg/mL to M
         initial_molar_concentration_mM = initial_concentration / molecular_weight
         
         # Apply dilution factor
         final_concentration_mM = initial_molar_concentration_mM / dilution_factor
         
         # Convert to µM
-        final_concentration_uM = final_concentration_mM * 1000
+        final_concentration_uM = final_concentration_mM * 1e6
         
         return final_concentration_uM
     
