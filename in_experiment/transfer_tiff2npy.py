@@ -276,7 +276,8 @@ def transfer_tiff2npy(
     ref_output_folder=None,
     ex_output_folder=None,
     camera_type="red",
-    show_progress=True
+    show_progress=True,
+    **kwargs
 ):
     """
     Transfer TIFF files from ex_folder_path to NPY format, separating reference and experiment volumes.
@@ -346,7 +347,7 @@ def transfer_tiff2npy(
         print(f"  - {worm_name}: {len(folders['ref'])} ref + {len(folders['ex'])} ex folders")
     
     # Get volume reading parameters
-    volume_read_params = _get_volume_read_params()
+    volume_read_params = kwargs.get("volume_read_params", _get_volume_read_params())
     
     # Process each worm
     for worm_lower, folders_dict in worm_groups.items():
@@ -398,10 +399,21 @@ if __name__ == "__main__":
     ref_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20251104\red"
     # ex_output_folder = r"I:\WJH\infer\me\20251025\ZM\red\ex_volumes"
     
+    volume_read_params = {
+        "z_start_frame_number": 0,
+        "z_end_frame_number": 17,
+        "mod2_reverse": [False, False],
+        "img_width": 1024,
+        "img_height": 1024,
+        "frame_number_per_volume": 20,
+        "img_dtype": np.uint16,
+    }
+    
     transfer_tiff2npy(
         ex_folder_path=experiment_folder_path,
         ref_output_folder=ref_output_folder,
         ex_output_folder=None,
         camera_type="red",
-        show_progress=True
+        show_progress=True,
+        volume_read_params=volume_read_params
     )
