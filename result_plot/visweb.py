@@ -148,7 +148,18 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
             
             html.Button('Update Plot', id='update-plot-button', 
                        style={'marginTop': '10px', 'padding': '10px 20px'}),
-            
+            html.Div([
+                html.Label("Save Path:", style={'margin-right': '10px'}),
+                dcc.Input(
+                    id='save-path-input',
+                    type='text',
+                    value='my_neuron_plot.html',  # 默认文件名
+                    style={'width': '300px', 'margin-right': '10px'}
+                ),
+                html.Button('Save Plot as HTML', id='save-html-button'),
+                html.Span(id='save-feedback', style={'margin-left': '10px'})
+            ], style={'marginTop': '15px'}),
+
         ], style={'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '5px'}),
         
         # Add a fixed height container for the plot
@@ -157,32 +168,20 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
         ], id='plot-container', style={'height': '800px', 'width': '100%'})
     ])
     
-    @app.callback(
-        [Output('response-plot', 'figure'),
-         Output('plot-container', 'style')],
-        Input('update-plot-button', 'n_clicks'),
-        [State('neuron-selector', 'value'),
-         State('stimuli-selector', 'value'),
-         State('display-type-selector', 'value'),
-         State('combine-options', 'value')]
-    )
-    def update_plot(n_clicks, selected_neurons, selected_stimuli, display_type, combine_options):
+    def generate_response_figure(selected_neurons, selected_stimuli, display_type, combine_options):
+        """
+        Generates the plotly figure and container style based on user selections.
+        This function contains the core plotting logic extracted from update_plot.
+        """
         if not selected_neurons or not selected_stimuli:
             return go.Figure(), {'height': '800px', 'width': '100%'}
         
-        # Process combination options
         combine_compounds = 'combine_compounds' in combine_options
         combine_neurons = 'combine_neurons' in combine_options
-        
-        # Apply neuron combination if needed
         processed_neuron_dict = neuron_segments_dict
         if combine_neurons:
             processed_neuron_dict = combine_lr_neurons(neuron_segments_dict)
-            # Update selected neurons list based on combined neurons
-            # First create a mapping from original neuron names to combined names
             neuron_mapping = create_neuron_mapping(neuron_segments_dict)
-            
-            # Then update the selected neurons list
             new_selected_neurons = []
             for neuron in selected_neurons:
                 if neuron in neuron_mapping:
@@ -190,9 +189,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                         new_selected_neurons.append(neuron_mapping[neuron])
                 elif neuron in processed_neuron_dict:
                     new_selected_neurons.append(neuron)
-            
+
             selected_neurons = new_selected_neurons if new_selected_neurons else [list(processed_neuron_dict.keys())[0]]
-        
         # Process stimuli combination if needed
         grouped_stimuli = {}
         compound_to_stimuli = {}  # For legend creation - maps compound to list of stimuli
@@ -463,10 +461,61 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
             )
         )
         
-        # Return both the figure and updated container style
         return fig, {'height': f'{container_height}px', 'width': '100%'}
+
+    @app.callback(
+        [Output('response-plot', 'figure'),
+         Output('plot-container', 'style')],
+        Input('update-plot-button', 'n_clicks'),
+        [State('neuron-selector', 'value'),
+         State('stimuli-selector', 'value'),
+         State('display-type-selector', 'value'),
+         State('combine-options', 'value')]
+    )
+    def update_plot(n_clicks, selected_neurons, selected_stimuli, display_type, combine_options):
+        fig, container_style = generate_response_figure(
+            selected_neurons, selected_stimuli, display_type, combine_options
+        )
+        return fig, container_style
     
+    @app.callback(
+        Output('save-feedback', 'children'),
+        Input('save-html-button', 'n_clicks'),
+        [State('save-path-input', 'value'),      # 获取自定义路径
+         State('neuron-selector', 'value'),      # 获取所有绘图选项
+         State('stimuli-selector', 'value'),
+         State('display-type-selector', 'value'),
+         State('combine-options', 'value')]
+    )
+    def save_plot_html(n_clicks, save_path, selected_neurons, selected_stimuli, display_type, combine_options):
+        if not n_clicks:
+            # 防止在应用加载时触发
+            raise dash.exceptions.PreventUpdate
+
+        if not save_path:
+            return "Error: Please provide a save path."
+        
+        if not selected_neurons or not selected_stimuli:
+            return "Error: No plot data selected to save."
+
+        try:
+            # 1. 使用完全相同的逻辑重新生成图形
+            # 我们只需要 fig 对象，所以用 _ 忽略 container_style
+            fig, _ = generate_response_figure(
+                selected_neurons, selected_stimuli, display_type, combine_options
+            )
+            
+            # 2. 将图形保存到指定的 HTML 文件
+            fig.write_html(save_path)
+            
+            # 3. 向用户返回成功消息
+            return f"Plot successfully saved to {save_path}"
+            
+        except Exception as e:
+            # 4. 返回错误消息
+            return f"Error saving plot: {str(e)}"
     return app
+
 
 def generate_compound_color_scheme(stimuli):
     """
@@ -700,4 +749,5 @@ if __name__ == "__main__":
     
     
     # Start the visualization web app
-    app = run_neuron_dashboard(neuron_segments_dict, odor_information=None, port=8051)  # Change port if needed
+    app = create_neuronal_dashboard(neuron_segments_dict, odor_information=None)
+    app.run(host="0.0.0.0", port= 8056)
