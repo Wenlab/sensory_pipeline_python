@@ -24,13 +24,13 @@ def _color_to_rgba(color, alpha=None)-> str:
     try:
         rgb_tuple = ImageColor.getrgb(color)
         if len(rgb_tuple) == 3 and alpha is None:
-            return f"rgb {rgb_tuple}"
+            return f"rgb({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]})"
         elif len(rgb_tuple) == 4:
             if alpha is not None:
                 rgb_tuple = rgb_tuple[:3] + (alpha,)
-            return f"rgba {rgb_tuple}"
+            return f"rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},{rgb_tuple[3]})"
         elif len(rgb_tuple) == 3 and alpha is not None:
-            return f"rgba {rgb_tuple + (alpha,)}"
+            return f"rgba({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]},{alpha})"
         else:
             raise ValueError(f"无法解析颜色: {color}")
     except Exception as e:
@@ -105,16 +105,19 @@ def add_regions_to_fig(fig, intervals, stimulus_list=None,
             showlegend=False,
             **kwargs
         )
+        hover_color = color_map[stim_name]
         fig.add_trace(go.Scatter(
-                x=[start, end],
-                y=[0.99, 0.99],
-                yaxis='y2',
-                mode='lines',
-                line=dict(color='rgba(0,0,0,0)', width=5),
-                hovertemplate=f'<b>Stimulus: {stim_name}</b><br>Start: {start:.2f}<br>End: {end:.2f}<extra></extra>',
-                hoverlabel=dict(align='left'),
-                showlegend=False
-            ))
+            x=[start, end],
+            y=[0.99, 0.99],
+            yaxis='y2',
+            mode='lines',
+            line=dict(color='rgba(0,0,0,0)', width=5),
+            opacity=0,
+            marker=dict(color='rgba(0,0,0,0)'),
+            hovertemplate=f'<b>Stimulus: {stim_name}</b><br>Start: {start:.2f}<br>End: {end:.2f}<extra></extra>',
+            hoverlabel=dict(bgcolor=hover_color, align='left'),
+            showlegend=False
+        ))
 
     if showlegend:
         unique_stimuli = sorted(set(names_to_loop))
