@@ -370,13 +370,15 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
         x_data = x_data[sorted_indices]
         y_data = y_data[sorted_indices]
         
-        # 去除异常值: 使用3-sigma规则
-        y_mean = np.mean(y_data)
-        y_std = np.std(y_data)
-        if np.isnan(y_std) or y_std == 0:
+        # 去除异常值: 使用 median absolute deviation
+        median = np.median(y_data)
+        abs_dev = np.abs(y_data - median)
+        mad = np.median(abs_dev)
+        if np.isnan(mad) or mad == 0:
             valid_idx = np.arange(len(y_data))
         else:
-            valid_idx = np.where(np.abs(y_data - y_mean) < 3 * y_std)[0]
+            modified_z = abs_dev / (1.4826 * mad)
+            valid_idx = np.where(modified_z <= 3)[0]
 
         x_data = x_data[valid_idx]
         y_data = y_data[valid_idx]
