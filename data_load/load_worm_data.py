@@ -1,5 +1,3 @@
-if __name__ == '__main__':
-    folder_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250421_EGCG"
 #%%
 import sys
 import os
@@ -38,10 +36,18 @@ def load_worm_data_dict(
     """处理单个worm的数据并存储到worm_data字典"""
     # 公共处理部分：读取ID、拟合F0等
     biologicalID = worm[key]['biological'].to_numpy()
-    
+    digitalID = worm[key]['digital'].to_numpy()
+    id_map = {}
+    for d_id, b_id in zip(digitalID, biologicalID):
+        if isinstance(b_id, str):
+            id_map[d_id] = b_id
+        else:
+            id_map[d_id] = str(d_id)
+    # d_id可能是跳跃的数字ID，因此需要进行处理
+
     modified_ID = [
-        id_value if isinstance(id_value, str) and not id_value.isdigit() else f'{index}'
-        for index, id_value in enumerate(biologicalID)
+        id_map.get(id_value, str(id_value))
+        for index, id_value in enumerate(range(max(digitalID) + 1))
     ]
     modified_ID_df = pd.DataFrame(modified_ID)
     
@@ -193,6 +199,7 @@ def load_worm_data(
 
 #%%
 if __name__ == '__main__':
+    folder_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250421_EGCG"
     info_excel = os.path.join(folder_path, 'output_volumes.xlsx')
     experiment_info = extract_intervals_from_excel(info_excel)
 
