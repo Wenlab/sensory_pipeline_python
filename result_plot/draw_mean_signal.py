@@ -99,13 +99,14 @@ def relplot_mean_signal(neuron_segments_df,
 
     
 def draw_mean_signal_cluster(neuron_segments_df,
-                             vertical_overlap=0.5,
+                             y_offset=1.5,
                              fig_width=12,
-                             fig_height_per_neuron = 1.5,
+                             fig_height_per_neuron = 0.5,
                              stimulus_info_dict=None,
                              cluster_stimulus=None,
                              save_folder=None,
-                             plot_covariance=True
+                             plot_covariance=True,
+                             vertical_overlap=None # Deprecated
                              ):
     all_neurons = sorted(neuron_segments_df['neuron'].unique())
     # Group and sort stimuli by concentration
@@ -213,92 +214,116 @@ def draw_mean_signal_cluster(neuron_segments_df,
         plt.savefig(f"{save_folder}/covariance_heatmap.pdf", dpi=300, bbox_inches='tight')
         plt.close()
 
-    # Calculate y_axis limits
-    grouped = neuron_segments_df.groupby(['neuron', 'stimulus'])
-    agg = grouped['delta_F_over_F0'].agg(['mean', 'sem']).reset_index()
-    global_y_min = (agg['mean'] - agg['sem']).min()
-    global_y_max = (agg['mean'] + agg['sem']).max()
-    padding = (global_y_max - global_y_min) * 0.1
-    global_y_min -= padding
-    global_y_max += padding
-    x_min = neuron_segments_df['time_point'].min()
-    x_max = neuron_segments_df['time_point'].max()
-
-
     # PLOTTING
     n_neurons = len(all_neurons)
     n_stimuli = len(stimulus_types)
 
-    extra_bottom_space = 0.5
-    total_height = fig_height_per_neuron * (1 + (n_neurons - 1) * (1 - vertical_overlap))
-    fig = plt.figure(figsize=(fig_width, total_height))
-    fig.suptitle('')
+    total_height = n_neurons * fig_height_per_neuron
+    if total_height < 6: total_height = 6
+    
+    # Reserve fixed space for labels (e.g. 1.5 inches)
+    label_height_inches = 1.5
+    bottom_fraction = label_height_inches / total_height
 
-    subplot_width = 1 / n_stimuli
-    subplot_height = fig_height_per_neuron / total_height
-    bottom_offset = extra_bottom_space / total_height
+    fig, axes = plt.subplots(1, n_stimuli, figsize=(fig_width, total_height), sharey=True, squeeze=False)
+    axes = axes.flatten()
+    
+    # Adjust layout to leave space for labels at bottom
+    plt.subplots_adjust(wspace=0.05, bottom=bottom_fraction)
 
-    # fill blank neuron with its symmetric neuron's data if possible
-    for i, neuron in enumerate(neurons_in_cluster_order):
-        for j, stimulus in enumerate(stimulus_types):
-            left = j * subplot_width
-            bottom = bottom_offset + (n_neurons - i - 1) * (subplot_height * (1 - vertical_overlap))
-            ax = fig.add_axes([left, bottom, subplot_width, subplot_height])
-            ax.set_facecolor('none')
+    x_min = neuron_segments_df['time_point'].min()
+    x_max = neuron_segments_df['time_point'].max()
+
+    # Collect x_centers for labels
+    stimulus_x_centers = []
+
+    for j, stimulus in enumerate(stimulus_types):
+        ax = axes[j]
+        ax.set_facecolor('none')
+        
+        # Get axis position for label alignment
+        bbox = ax.get_position()
+        x_center = bbox.x0 + bbox.width / 2
+        stimulus_x_centers.append(x_center)
+        
+        # Remove spines
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
+        # Add stimulus lines
+        ax.axvline(x=5, color='#E6A61C', linestyle='--', linewidth=1.5, zorder=0)
+        ax.axvline(x=15, color='#76642E', linestyle='--', linewidth=1.5, zorder=0)
+        
+        # Iterate neurons
+        for i, neuron in enumerate(neurons_in_cluster_order):
+            # Calculate offset
+            current_offset = i * y_offset
+            
+            # Z-order: lower neurons (smaller i) should be in front?
+            # If i=0 is bottom, and we want it to cover i=1 (above).
+            # So i=0 should be drawn LAST (highest zorder).
+            z_order = n_neurons - i
+
+            # Add baseline at y=0 relative to offset
+            ax.plot([x_min, x_max], [current_offset, current_offset], 
+                    color='black', linestyle=':', linewidth=1, alpha=0.5, zorder=z_order+0.05)
 
             df_subset = neuron_segments_df[(neuron_segments_df['neuron']==neuron) & (neuron_segments_df['stimulus']==stimulus)]
+            
+            mean_trace = None
+            sem_trace = None
+            is_symmetric = False
+            
             if not df_subset.empty:
                 mean_trace = df_subset.groupby('time_point')['delta_F_over_F0'].mean()
-                if not mean_trace.empty:
-                    sem_trace = df_subset.groupby('time_point')['delta_F_over_F0'].sem()
-                    ax.plot(mean_trace.index, mean_trace.values, color='blue', zorder=10)
-                    ax.fill_between(mean_trace.index,
-                                    mean_trace.values - sem_trace.values,
-                                    mean_trace.values + sem_trace.values,
-                                    color='gray', alpha=0.3, zorder=9)
+                sem_trace = df_subset.groupby('time_point')['delta_F_over_F0'].sem()
             else:
                 symmetric_neuron = get_symmetric_neuron(neuron)
                 df_symmetric = neuron_segments_df[(neuron_segments_df['neuron']==symmetric_neuron) & (neuron_segments_df['stimulus']==stimulus)]
-
                 if not df_symmetric.empty:
                     mean_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].mean()
-                    if not mean_trace.empty:
-                        sem_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].sem()
-                        ax.plot(mean_trace.index, mean_trace.values, color='blue', linestyle = "-.",zorder=10)
-
-            ax.axhline(y=0, color='black', linestyle=':', linewidth=1, alpha=0.5,zorder=1)
-            # remove spines and ticks
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_visible(False)
-            ax.spines['bottom'].set_visible(False)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_ylim(global_y_min, global_y_max)
-            ax.set_xlim(x_min, x_max)
-
-            ax.axvline(x=5, color='#E6A61C', linestyle='--', label='Stimulus Onset', linewidth=1.5, zorder=1)
-            ax.axvline(x=15, color='#76642E', linestyle='--', label='Stimulus Offset', linewidth=1.5, zorder=1)
-
-
+                    sem_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].sem()
+                    is_symmetric = True
+            
+            if mean_trace is not None:
+                y_values = mean_trace.values + current_offset
+                y_upper = y_values + sem_trace.values
+                y_lower = y_values - sem_trace.values
+                
+                color = 'blue'
+                linestyle = '-'
+                if is_symmetric:
+                    linestyle = '-.'
+                
+                # Fill
+                # White fill to block background
+                ax.fill_between(mean_trace.index, y_lower, y_upper, color='white', alpha=1.0, zorder=z_order)
+                # Color fill
+                ax.fill_between(mean_trace.index, y_lower, y_upper, color='gray', alpha=0.3, zorder=z_order+0.1)
+                # Line
+                ax.plot(mean_trace.index, y_values, color=color, linestyle=linestyle, zorder=z_order+0.2)
+                
+            # Add neuron label on the first subplot (even if trace is missing)
             if j == 0:
-                ax.text(-0.1, 0, neuron, transform=ax.transData, 
-                        rotation = 45, ha = 'right', va = 'center', fontsize=10)
-            else:
-                ax.spines['left'].set_visible(False)
+                # Label at the baseline of the trace (current_offset)
+                ax.text(x_min - (x_max-x_min)*0.05, current_offset, neuron, 
+                        ha='right', va='center', fontsize=10)
 
-            # if i == n_neurons - 1:
-            #     # ax.spines['bottom'].set_visible(True)
-            #     # ax.set_xticks([5, 15])
-            #     # ax.set_xticklabels(['0', '10'])
-            #     ax.set_xlabel(stimulus, fontsize=10)
-    label_ax = fig.add_axes([0, 0, 1, bottom_offset])
+        ax.set_xlim(x_min, x_max)
+        # Y-lim will be autoscaled or we can set it
+        # ax.set_ylim(-1, n_neurons * y_offset + 2)
+
+    label_ax = fig.add_axes([0, 0, 1, bottom_fraction])
     label_ax.set_xlim(0, 1)
     label_ax.set_ylim(0, 1)
     label_ax.axis('off')
     # Add concentration labels for each stimulus column
     for j, stimulus in enumerate(stimulus_types):
-        x_center = (j + 0.5) / n_stimuli
+        x_center = stimulus_x_centers[j]
         
         # Extract concentration from stimulus name
         if stimulus_info_dict and stimulus in stimulus_info_dict:
@@ -326,8 +351,8 @@ def draw_mean_signal_cluster(neuron_segments_df,
             start_idx = stimulus_types.index(group_stimuli_in_plot[0])
             end_idx = stimulus_types.index(group_stimuli_in_plot[-1])
             
-            x_start = start_idx / n_stimuli
-            x_end = (end_idx + 1) / n_stimuli
+            x_start = stimulus_x_centers[start_idx]
+            x_end = stimulus_x_centers[end_idx]
             
             # Draw bracket
             label_ax.plot([x_start, x_end], [bracket_y, bracket_y], 'k-', linewidth=1)
@@ -339,7 +364,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
                          ha='center', va='top', fontsize=8, weight='bold')
         elif len(group_stimuli_in_plot) == 1: # If only one stimulus, just add the name without bracket
             idx = stimulus_types.index(group_stimuli_in_plot[0])
-            x_center = (idx + 0.5) / n_stimuli
+            x_center = stimulus_x_centers[idx]
             label_ax.text(x_center, bracket_y - 0.1, compound_name, 
                          ha='center', va='top', fontsize=8, weight='bold')
             
