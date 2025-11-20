@@ -146,7 +146,7 @@ def _clean_outliers(values, index, threshold=10):
     return series.astype(np.float32)
 
 
-def _compute_segment_delta(intensity_segment, fitted_segment, background_noise, outlier_threshold=5):
+def _compute_segment_delta(intensity_segment, fitted_segment, background_noise, outlier_threshold=10):
     """Compute delta F/F0 for a single segment."""
     delta_df = pd.DataFrame(
         np.nan,
