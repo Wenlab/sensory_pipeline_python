@@ -31,12 +31,13 @@ def stimulus_lists_generate(experiment_df):
     Generate stimulus lists for each worm.
     '''
     stimulus_lists = {}
+    excluded_states = ["Buffer", "All Off", "Unknown"]
     for key in experiment_df.keys():
         stimulus_lists[key] = []
-        state = experiment_df[key]['state']
-        for i in range(len(state)):
-            if state[i] != 'Buffer' and state[i] != 'All Off':
-                stimulus_lists[key].append(state[i])
+        for index, row in experiment_df[key].iterrows():
+            if row['end'] - row['start'] != 0:
+                if row['state'] not in excluded_states:
+                    stimulus_lists[key].append(row['state'])
     return stimulus_lists
 
 def get_stimulus_info(excel_path, if_generate_stimulus_lists=False):
@@ -59,13 +60,15 @@ def extract_intervals(experiment_df,key):
     '''
     stimulus_intervals = []
     buffer_intervals = []
+    excluded_states = ["Buffer", "All Off", "Unknown"]
     for index, row in experiment_df[key].iterrows():
         start = row['start']
         end = row['end']
-        if "Buffer" not in row['state'] and "All Off" not in row['state']:
-            stimulus_intervals.append((start, end))
-        elif "Buffer" in row['state']:
-            buffer_intervals.append((start, end))
+        if end - start != 0:
+            if not any(state in row['state'] for state in excluded_states):
+                stimulus_intervals.append((start, end))
+            elif "Buffer" in row['state']:
+                buffer_intervals.append((start, end))
     return stimulus_intervals, buffer_intervals
 
 #%%
