@@ -62,10 +62,10 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
     mask = mask.compute()
     return ex_green, ex_red, mask
 
-def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024]):
+def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024], red_contrast_limits=[120,250], green_contrast_limits=[120,250]):
     viewer = napari.Viewer()
-    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, translate=green_translate, contrast_limits=[120,250])
-    viewer.add_image(red, name='red', colormap='red', blending='additive', scale=red_scale, translate=red_translate, contrast_limits=[120,250])
+    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, translate=green_translate, contrast_limits=green_contrast_limits)
+    viewer.add_image(red, name='red', colormap='red', blending='additive', scale=red_scale, translate=red_translate, contrast_limits=red_contrast_limits)
     viewer.add_labels(mask, name=mask_name, blending='translucent', scale=mask_scale, translate=mask_translate, opacity=1.0)
     return viewer
 
