@@ -98,6 +98,101 @@ def relplot_mean_signal(neuron_segments_df,
         return g
 
     
+def get_cluster_order(neuron_segments_df, all_neurons, cluster_stimulus=None):
+    stimulus_neuron_counts = neuron_segments_df.groupby('stimulus')['neuron'].nunique()
+    cluster_stimulus = cluster_stimulus if cluster_stimulus else stimulus_neuron_counts.idxmax()
+    print(f"cluster based on {cluster_stimulus}")
+    
+    df_cluster_stimulus = neuron_segments_df[neuron_segments_df['stimulus'] == cluster_stimulus]
+    
+    if df_cluster_stimulus.empty:
+        print(f"No data available for stimulus type '{cluster_stimulus}' to perform clustering.")
+        return all_neurons, None, cluster_stimulus
+
+    cluster_matrix_partial = df_cluster_stimulus.pivot_table(
+        index='neuron',
+        columns='time_point',
+        values='delta_F_over_F0',
+        aggfunc='mean'
+    )
+
+    time_columns = cluster_matrix_partial.columns
+    cluster_matrix_full = pd.DataFrame(index=all_neurons, columns=time_columns)
+
+    present_neurons = set(cluster_matrix_partial.index)
+    
+    neurons_imputed_with_zeros = []
+
+    # Fill in the response_matrix with available data
+    for neuron in all_neurons:
+        if neuron in present_neurons:
+            cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[neuron]
+        else:
+            symmetric_neuron = get_symmetric_neuron(neuron)
+            if symmetric_neuron in present_neurons:
+                cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[symmetric_neuron]
+            else:
+                cluster_matrix_full.loc[neuron] = 0
+                neurons_imputed_with_zeros.append(neuron)
+    
+    cluster_matrix_full = pd.to_numeric(cluster_matrix_full.stack(), errors='coerce').unstack().fillna(0).astype(float)
+    
+    # Z-score normalization across time points for each neuron
+    cluster_matrix_zscored = zscore(cluster_matrix_full, axis=1)
+    cluster_matrix_zscored = np.nan_to_num(cluster_matrix_zscored)
+    cluster_matrix_zscored = pd.DataFrame(cluster_matrix_zscored, index=cluster_matrix_full.index, columns=cluster_matrix_full.columns)
+
+    neurons_to_cluster = [n for n in all_neurons if n not in neurons_imputed_with_zeros]
+    
+    if len(neurons_to_cluster) > 1:
+        matrix_for_clustering = cluster_matrix_zscored.loc[neurons_to_cluster]
+        distance_matrix = pdist(matrix_for_clustering, metric='correlation')
+        linkage_matrix = linkage(distance_matrix, method='ward')
+        cluster_order_indices = leaves_list(linkage_matrix)
+
+        clustered_part = matrix_for_clustering.index[cluster_order_indices].tolist()
+        neurons_in_cluster_order = clustered_part + neurons_imputed_with_zeros
+    else:
+        neurons_in_cluster_order = neurons_to_cluster + neurons_imputed_with_zeros
+        
+    return neurons_in_cluster_order, cluster_matrix_full, cluster_stimulus
+
+
+def plot_covariance_matrix(cluster_matrix_full, neurons_in_cluster_order, cluster_stimulus, save_folder):
+    if cluster_matrix_full is None:
+        return None
+        
+    ordered_matrix = cluster_matrix_full.loc[neurons_in_cluster_order]
+    covariance_matrix = np.cov(ordered_matrix.values)
+    n_dim = len(neurons_in_cluster_order)
+
+    plt.figure(figsize=(8, 6))
+    mask = np.triu(np.ones_like(covariance_matrix, dtype=bool), k=1)
+    sns.heatmap(covariance_matrix, 
+                mask=mask,
+                annot=False, 
+                cmap='RdBu_r', 
+                center=0,
+                square=True,
+                xticklabels=neurons_in_cluster_order,
+                yticklabels=neurons_in_cluster_order,
+                cbar_kws={'label': 'Covariance'})
+    
+    plt.title(f'Covariance Matrix (clustered by {cluster_stimulus})\nDimensions: {n_dim} x {n_dim}')
+    plt.xlabel('Neurons')
+    plt.ylabel('Neurons')
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+
+    # Save covariance heatmap
+    plt.savefig(f"{save_folder}/covariance_heatmap.png", dpi=300, bbox_inches='tight')
+    plt.savefig(f"{save_folder}/covariance_heatmap.pdf", dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return covariance_matrix
+
+
 def draw_mean_signal_cluster(neuron_segments_df,
                              y_offset=1.5,
                              fig_width=12,
@@ -106,8 +201,12 @@ def draw_mean_signal_cluster(neuron_segments_df,
                              cluster_stimulus=None,
                              save_folder=None,
                              plot_covariance=True,
-                             vertical_overlap=None # Deprecated
+                             custom_order=None
                              ):
+    if neuron_segments_df.empty:
+        print("neuron_segments_df is empty. Nothing to plot.")
+        return None
+
     all_neurons = sorted(neuron_segments_df['neuron'].unique())
     # Group and sort stimuli by concentration
     if stimulus_info_dict:
@@ -124,98 +223,21 @@ def draw_mean_signal_cluster(neuron_segments_df,
         stimulus_types = sorted(neuron_segments_df['stimulus'].unique())
         grouped_stimuli = [(s, [s]) for s in stimulus_types]  # Each stimulus as its own group
 
-
-    # cluster with the stimulus type with the stimulus type with most neurons responding
-    stimulus_neuron_counts = neuron_segments_df.groupby('stimulus')['neuron'].nunique()
-
-    # cluster_stimulus = stimulus_neuron_counts.idxmax()
-    cluster_stimulus = cluster_stimulus if cluster_stimulus else stimulus_neuron_counts.idxmax()
-    print(f"cluster based on {cluster_stimulus}")
-    df_cluster_stimulus = neuron_segments_df[neuron_segments_df['stimulus'] == cluster_stimulus]
-    if df_cluster_stimulus.empty:
-        print(f"No data available for stimulus type '{cluster_stimulus}' to perform clustering.")
-        neurons_in_cluster_order = all_neurons
-        missing_neurons_from_clustering = set(all_neurons)
-        return
-    else:
-        cluster_matrix_partial = df_cluster_stimulus.pivot_table(
-            index='neuron',
-            columns='time_point',
-            values='delta_F_over_F0',
-            aggfunc='mean'
-        )
-
-        time_columns = cluster_matrix_partial.columns
-        cluster_matrix_full = pd.DataFrame(index=all_neurons, columns=time_columns)
-
-        present_neurons = set(cluster_matrix_partial.index)
-        missing_neurons_from_clustering = set(all_neurons) - present_neurons
-
-        neurons_imputed_with_zeros = []
-
-        # Fill in the response_matrix with available data
-        for neuron in all_neurons:
-            if neuron in present_neurons:
-                cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[neuron]
-            else:
-                symmetric_neuron = get_symmetric_neuron(neuron)
-                if symmetric_neuron in present_neurons:
-                    cluster_matrix_full.loc[neuron] = cluster_matrix_partial.loc[symmetric_neuron]
-                else:
-                    cluster_matrix_full.loc[neuron] = 0
-                    neurons_imputed_with_zeros.append(neuron)
+    if not custom_order:
+        neurons_in_cluster_order, cluster_matrix_full, cluster_stimulus = get_cluster_order(neuron_segments_df, all_neurons, cluster_stimulus)
         
-        cluster_matrix_full = pd.to_numeric(cluster_matrix_full.stack(), errors='coerce').unstack().fillna(0).astype(float)
-        # Z-score normalization across time points for each neuron
-        cluster_matrix_zscored= zscore(cluster_matrix_full, axis=1)
-        cluster_matrix_zscored = np.nan_to_num(cluster_matrix_zscored)  # Replace NaNs with 0 after z-scoring
-        cluster_matrix_zscored = pd.DataFrame(cluster_matrix_zscored, index=cluster_matrix_full.index, columns=cluster_matrix_full.columns)
-
-        neurons_to_cluster = [n for n in all_neurons if n not in neurons_imputed_with_zeros]
-        if len(neurons_to_cluster) > 1:
-            matrix_for_clustering = cluster_matrix_zscored.loc[neurons_to_cluster]
-            distance_matrix = pdist(matrix_for_clustering, metric='correlation')
-            linkage_matrix = linkage(distance_matrix, method='ward')
-            cluster_order_indices = leaves_list(linkage_matrix)
-
-            clustered_part = matrix_for_clustering.index[cluster_order_indices].tolist()
-            neurons_in_cluster_order = clustered_part + neurons_imputed_with_zeros
-        else:
-            neurons_in_cluster_order = neurons_to_cluster + neurons_imputed_with_zeros
-    # calculate and plot co1variance matrix
-    covariance_matrix = None
+        covariance_matrix = None
+        if plot_covariance and save_folder:
+            covariance_matrix = plot_covariance_matrix(cluster_matrix_full, neurons_in_cluster_order, cluster_stimulus, save_folder)
+    else:
+        neurons_in_cluster_order = custom_order
+        cluster_matrix_full = None
+        covariance_matrix = None
+        
     n_dim = len(neurons_in_cluster_order)
 
-    if plot_covariance and save_folder:
-        ordered_matrix = cluster_matrix_full.loc[neurons_in_cluster_order]
-        covariance_matrix = np.cov(ordered_matrix.values)
-
-        plt.figure(figsize=(8, 6))
-        mask = np.triu(np.ones_like(covariance_matrix, dtype=bool), k=1)
-        sns.heatmap(covariance_matrix, 
-                    mask=mask,
-                    annot=False, 
-                    cmap='RdBu_r', 
-                    center=0,
-                    square=True,
-                    xticklabels=neurons_in_cluster_order,
-                    yticklabels=neurons_in_cluster_order,
-                    cbar_kws={'label': 'Covariance'})
-        
-        plt.title(f'Covariance Matrix (clustered by {cluster_stimulus})\nDimensions: {n_dim} x {n_dim}')
-        plt.xlabel('Neurons')
-        plt.ylabel('Neurons')
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
-        plt.tight_layout()
-
-        # Save covariance heatmap
-        plt.savefig(f"{save_folder}/covariance_heatmap.png", dpi=300, bbox_inches='tight')
-        plt.savefig(f"{save_folder}/covariance_heatmap.pdf", dpi=300, bbox_inches='tight')
-        plt.close()
-
     # PLOTTING
-    n_neurons = len(all_neurons)
+    n_neurons = len(neurons_in_cluster_order)
     n_stimuli = len(stimulus_types)
 
     total_height = n_neurons * fig_height_per_neuron
@@ -313,6 +335,18 @@ def draw_mean_signal_cluster(neuron_segments_df,
                 ax.text(x_min - (x_max-x_min)*0.05, current_offset, neuron, 
                         ha='right', va='center', fontsize=10)
 
+        # Add scale bar on the last subplot
+        if j == n_stimuli - 1:
+            scale_value = 1.0
+            bar_x = x_max - (x_max - x_min) * 0.02
+            top_neuron_idx = len(neurons_in_cluster_order) - 1
+            bar_bottom = top_neuron_idx * y_offset + y_offset * 0.5
+            bar_top = bar_bottom + scale_value
+            
+            ax.plot([bar_x, bar_x], [bar_bottom, bar_top], color='black', linewidth=2)
+            ax.text(bar_x - (x_max - x_min) * 0.01, (bar_bottom + bar_top)/2, f'{scale_value} $\Delta F/F_0$', 
+                    ha='right', va='center', fontsize=8)
+
         ax.set_xlim(x_min, x_max)
         # Y-lim will be autoscaled or we can set it
         # ax.set_ylim(-1, n_neurons * y_offset + 2)
@@ -334,6 +368,8 @@ def draw_mean_signal_cluster(neuron_segments_df,
             else:
                 parts = full_name.split()
                 conc_part = parts[-1] if len(parts) > 1 else stimulus
+                if len(conc_part) > 3:
+                    conc_part = conc_part[:3] + '.'
         else:
             conc_part = stimulus
             
@@ -379,7 +415,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
         'covariance_matrix': covariance_matrix,
         'neurons_in_cluster_order': neurons_in_cluster_order,
         'n_dim': n_dim,
-        'cluster_stimulus': cluster_stimulus,
+        'cluster_stimulus': cluster_stimulus if not custom_order else None,
         'stimulus_order': stimulus_types,
         'grouped_stimuli': grouped_stimuli
     }
