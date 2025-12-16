@@ -98,7 +98,7 @@ def draw_pair_heatmap(df, save_folder, stimulus_onset=5, **kwargs):
             ax.set_xticklabels(xticklabels, rotation=0)
 
             # set y label
-            y_labels = [f"{date}_{key}_{idx}" for date, key, idx in pivot_df.index]
+            y_labels = [f"{str(date)}_{str(key)}_{idx}" for date, key, idx in pivot_df.index]
             ax.set_yticks(np.arange(len(y_labels)) + 0.5)
             ax.set_yticklabels(y_labels, rotation=45, fontsize=4)
             
