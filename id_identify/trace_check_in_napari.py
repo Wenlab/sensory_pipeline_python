@@ -174,6 +174,7 @@ def trace_check_in_napari_npy(
             contrast_limits=image_contrast_limit,
             name='image_channel',
             scale=image_scale,
+            blending='additive',
         )
     else:
         volume = volume_dask[
@@ -183,6 +184,7 @@ def trace_check_in_napari_npy(
             contrast_limits=image_contrast_limit,
             name='image_channel',
             scale=image_scale,
+            blending='additive',
         )
 
     if neuron_boxes_path is not None:
