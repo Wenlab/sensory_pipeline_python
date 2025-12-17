@@ -400,17 +400,17 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
             model_type = "exponential"
             # 转换为原始格式以兼容
             popt = best_params
-        elif best_func.__name__ == 'polynomial':
-            model_type = "polynomial"
-            # 这里只是一个近似处理
-            popt = [0, 0, np.mean(y_data)]  # 简单近似
+        elif best_func.__name__ == 'linear':
+            model_type = "linear"
+            # 线性模型只有 2 个参数 (a, b)
+            popt = [best_params[0], 0, best_params[1]]  # 兼容格式 [a, 0, b]
         elif best_func.__name__ == 'double_exponential':
             model_type = "double_exponential"
             # 简化处理
             a1, b1, a2, b2, c = best_params
             popt = [a1 + a2, (b1 + b2)/2, c]  # 近似处理
         else:
-            model_type = "moving_average"
+            model_type = "constant"
             popt = [0, 0, np.mean(y_data)]
         
         # 使用选定的模型生成整个时间轴上的F0曲线
@@ -427,13 +427,11 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
     return fitted_F0_df, fitted_params, r2_scores, model_types
 
 def fit_baseline(x_data, y_data, model_type='exp'):
-    """
-    根据数据特性选择最佳拟合模型
-    
+    """    
     Parameters:
     - x_data: 时间点数组
     - y_data: 相应的强度值
-    - model_type: 模型类型，可选 'exp'(指数), 'poly'(多项式), 'auto'(自动选择)
+    - model_type: 模型类型，可选 'exp'(指数), 'linear'(线性), 'auto'(自动选择)
     
     Returns:
     - best_func: 最佳拟合函数 (可调用, f(t, *params))
@@ -445,32 +443,97 @@ def fit_baseline(x_data, y_data, model_type='exp'):
     def exponential_decay(t, a, b, c):
         return a * np.exp(-b * t) + c
     
-    def polynomial(t, a, b, c, d):
-        return a * t**3 + b * t**2 + c * t + d
+    # 线性模型作为安全的备选（外推时不会发散）
+    def linear(t, a, b):
+        return a * t + b
     
     def double_exponential(t, a1, b1, a2, b2, c):
         return a1 * np.exp(-b1 * t) + a2 * np.exp(-b2 * t) + c
     
+    # --- AIC 计算函数 ---
+    def _calculate_aic(y_true, y_pred, n_params):
+        """
+        计算赤池信息量准则 (AIC)
+        
+        AIC = n * ln(RSS/n) + 2k
+        其中：
+        - n: 样本数
+        - RSS: 残差平方和
+        - k: 参数数量
+        
+        AIC 值越小越好。复杂模型（参数多）会受到惩罚。
+        """
+        n = len(y_true)
+        residuals = y_true - y_pred
+        rss = np.sum(residuals ** 2)
+        
+        # 避免 log(0) 的问题
+        if rss <= 0:
+            rss = 1e-10
+        
+        # AIC 公式
+        aic = n * np.log(rss / n) + 2 * n_params
+        
+        # 小样本校正 (AICc)，当 n/k < 40 时使用
+        if n > n_params + 1:
+            aic_c = aic + (2 * n_params * (n_params + 1)) / (n - n_params - 1)
+        else:
+            aic_c = aic
+        
+        return aic_c
+    
     # --- 内部辅助函数，用于拟合和评分 ---
-    def _fit_and_score(model, x, y, p0, bounds=(-np.inf, np.inf)):
+    def _fit_and_score(model, x, y, p0, bounds=(-np.inf, np.inf), use_robust=True):
+        """
+        使用标准或鲁棒拟合方法。
+        
+        Parameters:
+        - use_robust: 如果 True，使用鲁棒损失函数降低异常值的影响
+        
+        Returns:
+        - model: 拟合的模型函数
+        - popt: 最优参数
+        - r2: R² 值（用于报告）
+        - aic: AIC 值（用于模型选择）
+        - n_params: 参数数量
+        """
         try:
             with warnings.catch_warnings():
                 # 忽略 curve_fit 可能抛出的 OptimizeWarning
                 warnings.simplefilter("ignore")
-                popt, _ = curve_fit(model, x, y, p0=p0, bounds=bounds, maxfev=10000)
+                
+                if use_robust:
+                    # 使用鲁棒损失函数 'soft_l1' 来处理自发活动产生的 spikes
+                    # soft_l1: sqrt(1 + (f_true - f_pred)^2) - 1
+                    # 这种损失函数对异常值不敏感，能有效降低spontaneous spike的影响
+                    # 注意：必须使用 method='trf' 或 'dogbox' 才能支持 loss 参数
+                    popt, _ = curve_fit(
+                        model, x, y, p0=p0, bounds=bounds, maxfev=10000,
+                        method='trf', loss='soft_l1', f_scale=1.0
+                    )
+                else:
+                    # 标准最小二乘法
+                    popt, _ = curve_fit(model, x, y, p0=p0, bounds=bounds, maxfev=10000)
             
             y_pred = model(x, *popt)
-            # 使用 sklearn 计算 R²，更稳健
+            n_params = len(popt)
+            
+            # 计算 R²（用于报告）
             r2 = r2_score(y, y_pred)
-            return model, popt, r2
+            
+            # 计算 AIC（用于模型选择）
+            aic = _calculate_aic(y, y_pred, n_params)
+            
+            return model, popt, r2, aic, n_params
         except RuntimeError:
             # 拟合失败
-            return None, None, -np.inf
+            return None, None, -np.inf, np.inf, 0
         except ValueError:
             # 边界或 p0 维度不匹配等问题
-            return None, None, -np.inf
+            return None, None, -np.inf, np.inf, 0
 
     # --- 拟合逻辑 ---
+    best_aic = np.inf  # AIC 越小越好
     best_r2 = -np.inf
     best_func = None
     best_params = None
@@ -498,9 +561,11 @@ def fit_baseline(x_data, y_data, model_type='exp'):
         bounds_exp = ([-np.inf, 1e-9, -np.inf], [np.inf, np.inf, np.inf])
         models_to_try.append(("exp", exponential_decay, p0_exp, bounds_exp))
 
-    if model_type == 'poly' or model_type == 'auto':
-        p0_poly = [0, 0, 0, y_mean]
-        models_to_try.append(("poly", polynomial, p0_poly, (-np.inf, np.inf)))
+    # 线性模型作为安全的备选（外推时不会发散，适合光漂白校正）
+    # 注意：移除了高阶多项式，因为多项式在外推时会剧烈发散
+    if model_type == 'linear' or model_type == 'auto':
+        p0_linear = [0, y_mean]
+        models_to_try.append(("linear", linear, p0_linear, (-np.inf, np.inf)))
         
     if model_type == 'auto':
         p0_double_exp = [y_max*0.5, 0.01, y_max*0.5, 0.001, y_min]
@@ -509,12 +574,18 @@ def fit_baseline(x_data, y_data, model_type='exp'):
                              [np.inf, np.inf, np.inf, np.inf, np.inf])
         models_to_try.append(("double_exp", double_exponential, p0_double_exp, bounds_double_exp))
 
-    # 循环尝试所有模型
+    # 循环尝试所有模型，使用 AIC 选择最佳模型
+    # AIC 会惩罚参数更多的模型，避免过拟合
     for name, model, p0, bounds in models_to_try:
         if len(x_data) < len(np.atleast_1d(p0)):
             continue
-        func, params, r2 = _fit_and_score(model, x_data, y_data, p0, bounds)
-        if r2 > best_r2:
+        # 使用鲁棒拟合（抵抗自发活动）
+        func, params, r2, aic, n_params = _fit_and_score(model, x_data, y_data, p0, bounds, use_robust=True)
+        
+        # 使用 AIC 选择模型（AIC 越小越好）
+        # 这样双指数模型只有在显著优于单指数时才会被选择
+        if aic < best_aic:
+            best_aic = aic
             best_r2 = r2
             best_func = func
             best_params = params
@@ -523,16 +594,22 @@ def fit_baseline(x_data, y_data, model_type='exp'):
     if best_func is None:
         if len(x_data) >= 2:
             try:
-                best_params = np.polyfit(x_data, y_data, 1)
-
+                # 使用鲁棒线性拟合（降低spike的影响）
                 def linear_fit(t, a, b):
                     return a * t + b
-
+                
+                # 初始估计
+                # 注意：必须使用 method='trf' 才能支持 loss 参数
+                p0_lin = [0, np.mean(y_data)]
+                best_params, _ = curve_fit(
+                    linear_fit, x_data, y_data, p0=p0_lin,
+                    method='trf', loss='soft_l1', f_scale=1.0, maxfev=5000
+                )
                 best_func = linear_fit
                 y_pred_lin = linear_fit(x_data, *best_params)
                 best_r2 = r2_score(y_data, y_pred_lin)
 
-            except np.linalg.LinAlgError:
+            except (np.linalg.LinAlgError, RuntimeError, ValueError):
                 mean_val = float(np.mean(y_data))
                 best_func = lambda t, c=mean_val: np.full_like(np.asarray(t), c, dtype=np.float64)
                 best_params = np.array([mean_val])
