@@ -155,8 +155,8 @@ class ExtractChannelInfo:
     def generate_volume_df(self, states, start_counters, end_counters):
         if states[0] == 'All Off':
             adjust_frame = end_counters[0]
-            start_volumes = [math.ceil((x - adjust_frame) / self.slice_number) for x in start_counters]
-            end_volumes = [math.ceil((x - adjust_frame) / self.slice_number) for x in end_counters]
+            start_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in start_counters]
+            end_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in end_counters]
             if states[-1] == 'All Off':
                 states = states[1:-1]
                 start_counters = start_counters[1:-1]
@@ -171,8 +171,8 @@ class ExtractChannelInfo:
                 end_volumes = end_volumes[1:]
         else:
             adjust_frame = start_counters[0]
-            start_volumes = [math.ceil((x - adjust_frame) / self.slice_number) for x in start_counters]
-            end_volumes = [math.ceil((x - adjust_frame) / self.slice_number) for x in end_counters]
+            start_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in start_counters]
+            end_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in end_counters]
             if states[-1] == 'All Off':
                 states = states[:-1]
                 start_counters = start_counters[:-1]
