@@ -160,8 +160,8 @@ class ExtractChannelInfo:
             adjust_frame = start_counters[0]
             start_idx = 0
         
-        start_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in start_counters]
-        end_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in end_counters]
+        start_volumes = [math.floor((x - adjust_frame + 1) / self.slice_number) for x in start_counters]
+        end_volumes = [math.floor((x - adjust_frame + 1) / self.slice_number) for x in end_counters]
         end_idx = -1 if states[-1] == 'All Off' else None
 
         states = states[start_idx:end_idx]
@@ -188,10 +188,13 @@ class ExtractChannelInfo:
         """
         df = self._read_data_from_single(h5_filename)
         states, start_counters, end_counters = self._get_start_end_counters_single(df)
-        frame_df, volume_df = self.generate_volume_df(states, start_counters, end_counters)
-
-        # Extract worm ID from the filename
-        worm_id = self.extract_worm_id(Path(h5_filename).stem)
+        max_frame_number = None
+        if self.tiff_num_dict and worm_id in self.tiff_num_dict:
+            trial_idx = self.worm_trial_counters[worm_id]
+            if trial_idx < len(self.tiff_num_dict[worm_id]):
+                max_frame_number = self.tiff_num_dict[worm_id][trial_idx]
+            self.worm_trial_counters[worm_id] += 1
+        frame_df, volume_df = self.generate_volume_df(states, start_counters, end_counters, max_frame_number=max_frame_number)
         
         # Create output paths
         states_excel_path = os.path.join(self.output_folder, "output_states.xlsx")
