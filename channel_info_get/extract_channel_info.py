@@ -8,6 +8,7 @@ import re
 from tqdm import tqdm
 import glob
 import numpy as np
+from collections import defaultdict
 from pathlib import Path
 if __name__ == "__main__":
     import sys
@@ -15,7 +16,7 @@ if __name__ == "__main__":
 
 #%%
 class ExtractChannelInfo:
-    def __init__(self, input_folder_list, output_folder, metadata_path=None, config_file=None, FileMode='multiple'):
+    def __init__(self, input_folder_list, output_folder, metadata_path=None, config_file=None, FileMode='multiple', tiff_num_dict=None):
         """
         FileMode: 'single' or 'multiple'
         """
@@ -24,6 +25,8 @@ class ExtractChannelInfo:
         self.metadata_path = metadata_path
         self.config_file = config_file
         self.file_mode = FileMode
+        self.tiff_num_dict = tiff_num_dict
+        self.worm_trial_counters = defaultdict(int)
         self.channel_meanings, self.state_mappings, self.slice_number = self.load_config()
         self.shift_frame = self.read_shift_frames_from_metadata() if metadata_path else 0
         
@@ -146,12 +149,16 @@ class ExtractChannelInfo:
             end_counters.append(counter)
         return states, start_counters, end_counters
 
-    def generate_volume_df(self, states, start_counters, end_counters):
+    def generate_volume_df(self, states, start_counters, end_counters, max_frame_number=None):
+        if max_frame_number is not None and len(end_counters) > 0:
+            end_counters[-1] = max_frame_number
+
         if states[0] == 'All Off':
             adjust_frame = end_counters[0]
             start_idx = 1
         else:
             adjust_frame = start_counters[0]
+            start_idx = 0
         
         start_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in start_counters]
         end_volumes = [math.floor((x - adjust_frame) / self.slice_number) for x in end_counters]
@@ -290,10 +297,15 @@ class ExtractChannelInfo:
         Process files that are splitted by seconds.
         """
         states, start_counters, end_counters = self._get_start_end_counters_multi(h5_folder)
-        frame_df, volume_df = self.generate_volume_df(states, start_counters, end_counters)
-
         # Extract worm ID from the folder name
         worm_id = self.extract_worm_id(Path(h5_folder).name)
+        max_frame_number = None
+        if self.tiff_num_dict and worm_id in self.tiff_num_dict:
+            trial_idx = self.worm_trial_counters[worm_id]
+            if trial_idx < len(self.tiff_num_dict[worm_id]):
+                max_frame_number = self.tiff_num_dict[worm_id][trial_idx]
+            self.worm_trial_counters[worm_id] += 1
+        frame_df, volume_df = self.generate_volume_df(states, start_counters, end_counters, max_frame_number=max_frame_number)
 
         # Create output paths
         states_excel_path = os.path.join(self.output_folder, "output_states.xlsx")
