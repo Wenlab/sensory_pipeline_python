@@ -13,7 +13,7 @@ from data_load.load_worm_data import load_worm_ID, load_worm_data
 from utils.interpolate import interpolate_over_nans
 
 # %%
-def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
+def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', pre_segment=5, post_segment=30):
     """
     cut off worm data into neuron groups based on biological_ID and segments.
     Parameters:
@@ -81,8 +81,8 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
             # cut stimulus intervals into fixed length segments
             segments_data = []
             for idx, (start_time, end_time) in enumerate(stimulus_intervals):
-                start_idx = max(0, start_time - 5*vps_setting)# included
-                end_idx = min(len(delta_F_trace), end_time + 30*vps_setting)# not included
+                start_idx = max(0, start_time - pre_segment*vps_setting)# included
+                end_idx = min(len(delta_F_trace), end_time + post_segment*vps_setting)# not included
 
                 # Define fixed stimulus duration
                 fixed_stimulus_duration = 10 * vps_setting
@@ -467,7 +467,7 @@ def process_neuron_segments(neuron_segments_dict, group_size=5, if_group=False):
     return neuron_segments_dict
 
 
-def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve'):
+def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve', **kwargs):
     """
     Process worm data to extract neuron segments and perform z-score normalization.
     Parameters:
@@ -482,7 +482,7 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
     - boundary_method: str, method for boundary preservation in downsampling
     """
     # 1. Extract neuron groups and segments
-    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method)
+    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method, pre_segment=kwargs.get('pre_segment',5), post_segment=kwargs.get('post_segment',30))
 
     # 2. Process neuron segments
     neuron_segments_dict = process_neuron_segments(
@@ -512,6 +512,7 @@ def load_and_process_worm_data(
     group_size=5,
     if_group=False,
     boundary_method='preserve',
+    **kwargs
 ):
     """
     Load and process worm data with enhanced boundary-preserving downsampling.
@@ -566,7 +567,8 @@ def load_and_process_worm_data(
                                                                                                             group_size=group_size,
                                                                                                             if_group=if_group,
                                                                                                             vps_setting=vps_setting,
-                                                                                                            boundary_method=boundary_method
+                                                                                                            boundary_method=boundary_method,
+                                                                                                            **kwargs
                                                                                                             )
 
     # return a dict
