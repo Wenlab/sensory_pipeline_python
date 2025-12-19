@@ -23,13 +23,14 @@ def transfer_neuron_pt_tuple_to_dict(neuron_pt_tuple):
             pt_dict[neuron_ID][volume_number] = neuron_points[neuron_ID][volume_number][:6]
     return pt_dict
 
-def create_mask_for_neuron_box(pt_tuple_dict, output_shape, volume_start_number=0, save_dir=None, chunk_shape=(1, 8, 256, 256))->da.Array:
+def create_mask_for_neuron_box(pt_tuple_dict, output_shape, volume_start_number=0,  depth_correction=0, save_dir=None, chunk_shape=(1, 8, 256, 256))->da.Array:
     """
     Create a mask for neuron boxes
     Args:
         pt_tuple_dict: {neuron_ID: {volume_number: [x,y,z*5,width,height,depth*5]}}
         output_shape: (time_steps, layers, height, width)
         volume_start_number: starting index for volume to draw
+        depth_correction: correction to apply to depth dimension
         save_dir: directory to save individual volume masks, if None, return a dask array
         chunk_shape: chunk shape for dask array
     Returns:
@@ -50,17 +51,17 @@ def create_mask_for_neuron_box(pt_tuple_dict, output_shape, volume_start_number=
             # handle nan values
             if np.isnan([x, y, z_scaled, w, h, d_scaled]).any():
                 continue
-            z_centre = int(round(z_scaled / 5.0))
-            depth_layers = max(1, int(np.ceil(d_scaled / 5.0)))
+            z_centre = z_scaled / 5.0
+            depth_layers = d_scaled / 5.0
             half_depth = depth_layers / 2.0
-            z_min = max(0, int(np.floor(z_centre - half_depth)))
-            z_max = min(layers, int(np.floor(z_centre + half_depth)))
-            x_min = max(0, int(np.floor(x - w / 2.0)))
-            x_max = min(width, int(np.floor(x + w / 2.0)))
-            y_min = max(0, int(np.floor(y - h / 2.0)))
-            y_max = min(height, int(np.floor(y + h / 2.0)))
+            z_min = max(0, int(np.ceil(z_centre - half_depth)))
+            z_max = min(layers, int(np.ceil(z_centre + half_depth))) + depth_correction
+            x_min = max(0, int((x - w / 2.0)))
+            x_max = min(width, int((x + w / 2.0)))
+            y_min = max(0, int((y - h / 2.0)))
+            y_max = min(height, int((y + h / 2.0)))
             if z_min <= z_max and y_min < y_max and x_min < x_max:
-                mask_np[z_min:z_max+1, y_min:y_max+1, x_min:x_max+1] = neuron_id + 1
+                mask_np[z_min:z_max, y_min:y_max, x_min:x_max] = neuron_id + 1
         return mask_np
     
     if save_dir is not None:
