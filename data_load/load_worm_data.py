@@ -34,7 +34,13 @@ def load_worm_data_dict(
     background_noise=102,
 ):
     """处理单个worm的数据并存储到worm_data字典"""
-    # 公共处理部分：读取ID、拟合F0等
+    # check if there's key in worm ID, if not use digital ID as biological ID
+    if key not in worm:
+        worm[key] = pd.DataFrame({
+            'biological': np.arange(f[key]['intensity'].shape[1]),
+            'digital': np.arange(f[key]['intensity'].shape[1])
+        })
+
     biologicalID = worm[key]['biological'].to_numpy()
     digitalID = worm[key]['digital'].to_numpy()
     id_map = {}
@@ -43,7 +49,6 @@ def load_worm_data_dict(
             id_map[d_id] = b_id
         else:
             id_map[d_id] = str(d_id)
-    # d_id可能是跳跃的数字ID，因此需要进行处理
 
     modified_ID = [
         id_map.get(id_value, str(id_value))
