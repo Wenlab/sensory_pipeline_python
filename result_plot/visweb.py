@@ -393,7 +393,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                     f"{hover_text}<br>"
                                     f"x: %{{x}}<br>"
                                     f"y: %{{y:.3f}}<br>"
-                                    f"N: {len(all_segments)}"
+                                    f"N: {len(all_segments)}<br>"
+                                    f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
                                 ),
                             ),
                             row=row_idx, col=col_idx
@@ -413,7 +414,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                     mean_data = np.mean(all_data, axis=0)
                     sem_data = stats.sem(all_data, axis=0)
                     x_values = np.arange(min_len) - start_time
-
+                    # Create hover text
+                    hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
                     # Plot mean line
                     fig.add_trace(
                         go.Scatter(
@@ -421,7 +423,13 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                             y=mean_data,
                             mode='lines',
                             line=dict(color=highlight_color, width=2),
-                            showlegend=False
+                            showlegend=False,
+                            hovertemplate=(
+                                    f"{hover_text}<br>"
+                                    f"x: %{{x}}<br>"
+                                    f"y: %{{y:.3f}}<br>"
+                                    f"N: {len(all_segments)}"
+                                ),
                         ),
                         row=row_idx, col=col_idx
                     )
