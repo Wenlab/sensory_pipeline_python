@@ -11,6 +11,17 @@ from pathlib import Path
 def _read_frame(filenames_vol,**kwargs):
     return tifffile.imread( filenames_vol[0][0] )[np.newaxis,np.newaxis,:,:]
 
+def extract_tiff_max_number(image_dir):
+    # Get a list of all tiff files in the directory
+    tiff_files = [f for f in os.listdir(image_dir) if f.endswith(".tif")]
+    
+    if not tiff_files:
+        return -1
+        
+    tiff_files.sort()
+    # The last file in sorted order has the maximum number
+    return int(tiff_files[-1].split(".")[0])
+
 def extract_volume_numbers_from_dir(image_dir, frames_per_volume=20):
     volume_numbers = []
     frame_numbers = (
