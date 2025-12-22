@@ -62,10 +62,10 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
     mask = mask.compute()
     return ex_green, ex_red, mask
 
-def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024]):
+def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024], red_contrast_limits=[120,250], green_contrast_limits=[120,250]):
     viewer = napari.Viewer()
-    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, translate=green_translate, contrast_limits=[120,250])
-    viewer.add_image(red, name='red', colormap='red', blending='additive', scale=red_scale, translate=red_translate, contrast_limits=[120,250])
+    viewer.add_image(green, name='green', colormap='green', blending= 'additive', scale=green_scale, translate=green_translate, contrast_limits=green_contrast_limits)
+    viewer.add_image(red, name='red', colormap='red', blending='additive', scale=red_scale, translate=red_translate, contrast_limits=red_contrast_limits)
     viewer.add_labels(mask, name=mask_name, blending='translucent', scale=mask_scale, translate=mask_translate, opacity=1.0)
     return viewer
 
@@ -84,6 +84,8 @@ def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path 
         green_translate (_type_, optional): green channel translate in napari viewer
         mask_scale (_type_, optional): mask scale in napari viewer
         mask_translate (_type_, optional): mask translate in napari viewer
+        red_contrast_limits (_type_, optional): red channel contrast limits in napari viewer
+        green_contrast_limits (_type_, optional): green channel contrast limits in napari viewer
     """
     mask_name = kwargs.get("mask_name", "mask")
     green_scale = kwargs.get("green_scale", [1,5,1,-1])
@@ -92,7 +94,8 @@ def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path 
     green_translate = kwargs.get("green_translate", [0,0,0,1024])
     mask_scale = kwargs.get("mask_scale", [1,5,1,-1])
     mask_translate = kwargs.get("mask_translate", [0,0,0,1024])
-    
+    red_contrast_limits = kwargs.get("red_contrast_limits", [120,250])
+    green_contrast_limits = kwargs.get("green_contrast_limits", [120,250])
     green, red, mask = image_and_box_load(green_file_path=green_file_path,
                                           red_file_path=red_file_path,
                                           neuron_pt_tuple_path=neuron_pt_tuple_path,
@@ -106,7 +109,9 @@ def id_identify_in_napari(green_file_path, red_file_path,  neuron_pt_tuple_path 
                             green_translate=green_translate,
                             red_translate=red_translate,
                             mask_scale=mask_scale,
-                            mask_translate=mask_translate)
+                            mask_translate=mask_translate,
+                            red_contrast_limits=red_contrast_limits,
+                            green_contrast_limits=green_contrast_limits)
 
     
     return viewer

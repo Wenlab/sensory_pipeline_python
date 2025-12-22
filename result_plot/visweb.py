@@ -153,7 +153,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                 dcc.Input(
                     id='save-path-input',
                     type='text',
-                    value='my_neuron_plot.html',  # 默认文件名
+                    value='my_neuron_plot.html',
                     style={'width': '300px', 'margin-right': '10px'}
                 ),
                 html.Button('Save Plot as HTML', id='save-html-button'),
@@ -298,20 +298,48 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
             # Use neuron-specific y-range
             y_range = neuron_y_ranges[neuron]
             
-            # Add neuron label on the left side of each row
-            if row_idx == 1:
-                # Add a global y-axis title for the first row
-                fig.update_layout(
-                    yaxis_title="ΔF/F0"
-                )
+            # # Add neuron label on the left side of each row
+            # if row_idx == 1:
+            #     # Add a global y-axis title for the first row
+            #     fig.update_layout(
+            #         yaxis_title="ΔF/F0",
+            #     )
             
-            # Add neuron name as y-axis title for each row
+            # # Add neuron name as y-axis title for each row
+            # fig.update_yaxes(
+            #     title=dict(
+            #         text=f"<b>{neuron}</b>",
+            #         font=dict(size=12),
+            #         standoff=15  # Space between axis and title
+            #     ),
+            #     row=row_idx, col=1
+            # )
+            n_rows = len(selected_neurons)
+            y_pos = 1 - (row_idx - 0.5) / n_rows
+            fig.add_annotation(
+                text=f"<b>{neuron}</b>",
+                xref="x domain", yref="y domain",
+                x=-0.02, y=0.5,
+                showarrow=False,
+                xanchor="right",
+                yanchor="middle",
+                row=row_idx, col=1,
+                font=dict(size=12, color="black")
+            )
+
+            if row_idx == 1:
+                fig.add_annotation(
+                    text="ΔF/F0",
+                    xref="paper", yref="paper",
+                    x=-0.08, y=1.05, # Position above the first row
+                    showarrow=False,
+                    font=dict(size=10, color="gray")
+                )
+
             fig.update_yaxes(
-                title=dict(
-                    text=f"<b>{neuron}</b>",
-                    font=dict(size=12),
-                    standoff=15  # Space between axis and title
-                ),
+                showline=True,
+                visible=True,
+                showticklabels=True,
                 row=row_idx, col=1
             )
             
@@ -352,7 +380,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                         # start_time = seg.get('start_time', 6)
                         x_values = np.arange(len(values)) - start_time
                         # Create hover text with worm_key and date
-                        hover_text = f"{seg.get('worm_key', '')} {seg.get('date', '')}"
+                        hover_text = f"{seg.get('worm_key', '')}_{seg.get('segment_index', '')}_{seg.get('date', '')}"
                         fig.add_trace(
                             go.Scatter(
                                 x=x_values,
@@ -365,7 +393,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                     f"{hover_text}<br>"
                                     f"x: %{{x}}<br>"
                                     f"y: %{{y:.3f}}<br>"
-                                    f"N: {len(all_segments)}"
+                                    f"N: {len(all_segments)}<br>"
+                                    f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
                                 ),
                             ),
                             row=row_idx, col=col_idx
@@ -385,7 +414,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                     mean_data = np.mean(all_data, axis=0)
                     sem_data = stats.sem(all_data, axis=0)
                     x_values = np.arange(min_len) - start_time
-
+                    # Create hover text
+                    hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
                     # Plot mean line
                     fig.add_trace(
                         go.Scatter(
@@ -393,7 +423,13 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                             y=mean_data,
                             mode='lines',
                             line=dict(color=highlight_color, width=2),
-                            showlegend=False
+                            showlegend=False,
+                            hovertemplate=(
+                                    f"{hover_text}<br>"
+                                    f"x: %{{x}}<br>"
+                                    f"y: %{{y:.3f}}<br>"
+                                    f"N: {len(all_segments)}"
+                                ),
                         ),
                         row=row_idx, col=col_idx
                     )
@@ -447,17 +483,18 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
         fig.update_layout(
             height=total_height,
             width=total_width,
-            margin=dict(l=80, r=100, t=40, b=60),  # Increased right margin for legend
+            margin=dict(l=80, r=20, t=80, b=60),
             template="plotly_white",
             hovermode="closest",
             legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="right",
-                x=1.5,
+                orientation="h",
+                yanchor="bottom",
+                y=1.01,
+                xanchor="left",
+                x=0,
                 title="Stimulus",
-                bordercolor="Black",
-                borderwidth=1
+                bordercolor="White",
+                borderwidth=0.5
             )
         )
         
@@ -638,10 +675,11 @@ def combine_lr_neurons(neuron_segments_dict):
     neuron_groups = {}
     for neuron in neuron_segments_dict:
         if neuron.endswith('L') or neuron.endswith('R'):
-            base_name = neuron[:-1]  # Remove the L or R suffix
-            if base_name not in neuron_groups:
-                neuron_groups[base_name] = []
-            neuron_groups[base_name].append(neuron)
+            if neuron not in ['ASEL', 'ASER']:  # Exclude special cases
+                base_name = neuron[:-1]  # Remove the L or R suffix
+                if base_name not in neuron_groups:
+                    neuron_groups[base_name] = []
+                neuron_groups[base_name].append(neuron)
     
     # Combine neuron pairs
     for base_name, neurons in neuron_groups.items():

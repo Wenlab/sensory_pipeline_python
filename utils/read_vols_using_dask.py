@@ -11,6 +11,17 @@ from pathlib import Path
 def _read_frame(filenames_vol,**kwargs):
     return tifffile.imread( filenames_vol[0][0] )[np.newaxis,np.newaxis,:,:]
 
+def extract_tiff_max_number(image_dir):
+    # Get a list of all tiff files in the directory
+    tiff_files = [f for f in os.listdir(image_dir) if f.endswith(".tif")]
+    
+    if not tiff_files:
+        return -1
+        
+    tiff_files.sort()
+    # The last file in sorted order has the maximum number
+    return int(tiff_files[-1].split(".")[0])
+
 def extract_volume_numbers_from_dir(image_dir, frames_per_volume=20):
     volume_numbers = []
     frame_numbers = (
@@ -47,19 +58,13 @@ def extract_volume_numbers_from_dir(image_dir, frames_per_volume=20):
 def get_filenames_vols(
     volume_numbers,
     tiff_root_path,
-    img_height,
-    img_width,
-    img_dtype,
     frame_number_per_volume,
     z_start_frame_number,
     z_end_frame_number,
     mod2_reverse,
-    show_progress=False,  # New parameter to control tqdm progress bar
+    show_progress=False,
+    **kwargs
 ):
-    img_depth = z_end_frame_number - z_start_frame_number + 1
-    # volumes_img = np.zeros(
-    #     (len(volume_numbers), img_depth, img_height, img_width), dtype=img_dtype
-    # )
     filenames_vols = []
     iterable = tqdm(volume_numbers) if show_progress else volume_numbers
     for index, volume_number in enumerate(iterable):
@@ -86,23 +91,45 @@ def get_filenames_vols(
 def lazy_read_tiff_stack(
     tiff_path_,
     volume_read_params,
+    visual_volume_count=None,
 ):
+    """
+    Read a stack of Tiff images lazily using Dask.
+    Args:
+        tiff_path_: path to the tiff directory
+        volume_read_params: dict, parameters for reading volumes, including:
+            frame_number_per_volume: number of frames per volume
+            img_height: height of each image
+            img_width: width of each image
+            img_dtype: data type of the images
+            z_start_frame_number: starting frame number in each volume
+            z_end_frame_number: ending frame number in each volume
+            mod2_reverse: list of bool, whether to reverse every second volume
+        visual_volume_count: if not None, only read this many volumes for visualization
+    """
     # Extract volume numbers from the directory
-    vols = extract_volume_numbers_from_dir(tiff_path_)
+    if visual_volume_count is None:
+        vols = extract_volume_numbers_from_dir(tiff_path_, frames_per_volume=volume_read_params.get("frame_number_per_volume", 20))
+    else:
+        vols = list(range(visual_volume_count))
     file_names = get_filenames_vols(
         volume_numbers=vols,
         tiff_root_path=tiff_path_,
         show_progress=True,
         **volume_read_params,
     )
+    width = volume_read_params.get("img_width", 1024)
+    height = volume_read_params.get("img_height", 1024)
     valid_frames_per_volume = volume_read_params["z_end_frame_number"] - volume_read_params["z_start_frame_number"] + 1
     file_names_dask = da.from_array(file_names, chunks=(1, 1))
     images_dask = file_names_dask.map_blocks(
         _read_frame,
-        chunks=da.core.normalize_chunks((1, 1, 1024, 1024), (len(vols), valid_frames_per_volume, 1024, 1024)),
+        chunks=da.core.normalize_chunks((1, 1, height, width), (len(vols), valid_frames_per_volume, height, width)),
         # multiple_files=True,
         new_axis=[2, 3],
         meta=np.array((), dtype=np.uint16),  # meta overwrites `dtype` argument
+        height=height,
+        width=width,
     )
     return images_dask
 

@@ -10,10 +10,10 @@ import h5py
 from scipy.ndimage import gaussian_filter1d
 from data_load.get_stimulus_info import get_stimulus_info, extract_intervals_from_excel
 from data_load.load_worm_data import load_worm_ID, load_worm_data
-
+from utils.interpolate import interpolate_over_nans
 
 # %%
-def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
+def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', pre_segment=5, post_segment=30):
     """
     cut off worm data into neuron groups based on biological_ID and segments.
     Parameters:
@@ -53,20 +53,19 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
     num_worms = len(worm_keys)
 
     neuron_segments_dict = {}
-    max_num_segments = 0
     neuron_group_keys = sorted(neuron_groups.keys())
     # sorted_worm_list = sorted(worm_list, key=lambda x: int(x[1:]))
 
     # 3. Process each neuron group
     for group_key in neuron_group_keys:
         worm_segments = {}
-        min_num_segments = None
         group_neurons = neuron_groups[group_key]
 
         for idx, worm_key in enumerate(worm_keys):
             data = worm_data[worm_key]
             biological_ID = data["biological_ID"][0].tolist()
             delta_F_over_F = data["delta_F_over_F"]
+            delta_F_over_F, t_inter = interpolate_over_nans(delta_F_over_F)
             stimulus_intervals = data["stimulus_intervals"]
             worm_stimuli = data["stimulus_list"]
             # worm_stimuli = stimulus_lists.get(worm_key, [])
@@ -82,8 +81,8 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
             # cut stimulus intervals into fixed length segments
             segments_data = []
             for idx, (start_time, end_time) in enumerate(stimulus_intervals):
-                start_idx = max(0, start_time - 5*vps_setting)# included
-                end_idx = min(len(delta_F_trace), end_time + 25*vps_setting)# not included
+                start_idx = max(0, start_time - pre_segment*vps_setting)# included
+                end_idx = min(len(delta_F_trace), end_time + post_segment*vps_setting)# not included
 
                 # Define fixed stimulus duration
                 fixed_stimulus_duration = 10 * vps_setting
@@ -122,23 +121,10 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve'):
             if not segments_data:
                 continue
 
-            seg_count = len(segments_data)
-            if min_num_segments is None:
-                min_num_segments = seg_count
-            else:
-                min_num_segments = min(min_num_segments, seg_count)
-
             worm_segments[worm_key] = segments_data
 
         if not worm_segments:
             continue
-
-        # Ensure all worms have the same length of segments
-        for worm_key in worm_segments:
-            worm_segments[worm_key] = worm_segments[worm_key][:min_num_segments]
-
-        if min_num_segments > max_num_segments:
-            max_num_segments = min_num_segments
 
         # use a dict to store detailed segments
         detailed_segments = {}
@@ -448,6 +434,51 @@ def reorganize_neuron_segments(neuron_segments_dict, date):
     return reorganized_dict
 
 
+def drop_wrong_trials(neuron_segments_dict_reorganized, neuron, stimulus, wrong_trials_list):
+    """
+    Drop trials specified in wrong_trials_list from neuron_segments_dict_reorganized for a specific neuron and stimulus.
+    
+    Parameters:
+    - neuron_segments_dict_reorganized: dict
+        The dictionary returned by reorganize_neuron_segments.
+    - neuron: str
+        The neuron group key (e.g., 'AWC_ON').
+    - stimulus: str
+        The stimulus type (e.g., 'benzaldehyde_high').
+    - wrong_trials_list: list of str
+        List of unique identifiers for trials to drop. 
+        Format: "{worm_key}_{segment_index}_{date}"
+    
+    Returns:
+    - neuron_segments_dict_reorganized: dict
+        The dictionary with specified trials removed.
+    """
+    if neuron not in neuron_segments_dict_reorganized:
+        print(f"Warning: Neuron group '{neuron}' not found.")
+        return neuron_segments_dict_reorganized
+        
+    if stimulus not in neuron_segments_dict_reorganized[neuron]:
+        print(f"Warning: Stimulus '{stimulus}' not found in neuron group '{neuron}'.")
+        return neuron_segments_dict_reorganized
+
+    wrong_trials_set = set(wrong_trials_list)
+    
+    # Filter the specific list of segments
+    original_segments = neuron_segments_dict_reorganized[neuron][stimulus]
+    cleaned_segments = []
+    
+    for segment in original_segments:
+        # Construct unique ID
+        trial_id = f"{segment['worm_key']}_{segment['segment_index']}_{segment['date']}"
+        
+        if trial_id not in wrong_trials_set:
+            cleaned_segments.append(segment)
+            
+    neuron_segments_dict_reorganized[neuron][stimulus] = cleaned_segments
+                
+    return neuron_segments_dict_reorganized
+
+
 # merge different date's neuron segments
 def merge_multiple_dicts(*dicts):
     """
@@ -481,7 +512,7 @@ def process_neuron_segments(neuron_segments_dict, group_size=5, if_group=False):
     return neuron_segments_dict
 
 
-def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve'):
+def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve', **kwargs):
     """
     Process worm data to extract neuron segments and perform z-score normalization.
     Parameters:
@@ -496,7 +527,7 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
     - boundary_method: str, method for boundary preservation in downsampling
     """
     # 1. Extract neuron groups and segments
-    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method)
+    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method, pre_segment=kwargs.get('pre_segment',5), post_segment=kwargs.get('post_segment',30))
 
     # 2. Process neuron segments
     neuron_segments_dict = process_neuron_segments(
@@ -526,6 +557,7 @@ def load_and_process_worm_data(
     group_size=5,
     if_group=False,
     boundary_method='preserve',
+    **kwargs
 ):
     """
     Load and process worm data with enhanced boundary-preserving downsampling.
@@ -580,7 +612,8 @@ def load_and_process_worm_data(
                                                                                                             group_size=group_size,
                                                                                                             if_group=if_group,
                                                                                                             vps_setting=vps_setting,
-                                                                                                            boundary_method=boundary_method
+                                                                                                            boundary_method=boundary_method,
+                                                                                                            **kwargs
                                                                                                             )
 
     # return a dict
@@ -636,10 +669,10 @@ if __name__ == "__main__":
     #     **return_dict["neuron_segments_dict_reorganized"]
     # )
 
-    result_dict = load_and_process_worm_data(
-        h5_file_path=r"I:\WJH\0628_LYP\intensity.h5",
-        channel_info_path=r"I:\WJH\0628_LYP\output_volumes.xlsx",
-        ID_info_path=r"I:\WJH\0628_LYP\ID.xlsx",
-        date="20240628",
-        vps_setting=5,
-        boundary_method='preserve')
+    result_dict_20251111 = load_and_process_worm_data(
+        h5_file_path=r"H:\Process_temporary\WJH\olfactory\infer_result\20251111\20251111.h5",
+        channel_info_path=r"H:\Process_temporary\WJH\olfactory\labjack_result\20251111\output_volumes_merged.xlsx",
+        ID_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20251111\20251111.xlsx",
+        date="20251111",
+        vps_setting=1,
+        exclude_key=None)

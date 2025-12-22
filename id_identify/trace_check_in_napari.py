@@ -174,6 +174,7 @@ def trace_check_in_napari_npy(
             contrast_limits=image_contrast_limit,
             name='image_channel',
             scale=image_scale,
+            blending='additive',
         )
     else:
         volume = volume_dask[
@@ -183,6 +184,7 @@ def trace_check_in_napari_npy(
             contrast_limits=image_contrast_limit,
             name='image_channel',
             scale=image_scale,
+            blending='additive',
         )
 
     if neuron_boxes_path is not None:
@@ -197,7 +199,7 @@ def trace_check_in_napari_npy(
         )
     elif neuron_pt_tuple_path is not None:
         neuron_pt_tuple = np.load(neuron_pt_tuple_path)
-        output_shape = (neuron_pt_tuple.shape[0], neuron_pt_tuple.shape[1], 1024, 1024)       
+        output_shape = (neuron_pt_tuple.shape[0], volume_dask.shape[1], 1024, 1024)       
         neuron_boxes = draw_neuron_box(neuron_pt_tuple, output_shape=output_shape, save_dir=None)
         viewer.add_labels(
             neuron_boxes[volume_read_start:volume_read_end:volume_read_interval].compute() if not use_visual_stack else neuron_boxes[

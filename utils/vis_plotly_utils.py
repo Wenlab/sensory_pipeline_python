@@ -80,14 +80,18 @@ def add_regions_to_fig(fig, intervals, stimulus_list=None,
         n_stim = len(unique_stimuli)
         
         if isinstance(color, list):
-            if len(color) < n_stim:
+            if len(color) == len(stimulus_list):
+                for stim_val, color_val in zip(stimulus_list, color):
+                    if stim_val not in color_map:
+                        color_map[stim_val] = _color_to_rgba(color_val, alpha)
+            elif len(color) >= n_stim:
+                for i, stim in enumerate(unique_stimuli):
+                    color_map[stim] = _color_to_rgba(color[i], alpha)
+            else:
                 print(f"Warning: Not enough colors provided. Using colormap.")
                 cmap = cm.get_cmap('tab10')
                 for i, stim in enumerate(unique_stimuli):
                     color_map[stim] = _color_to_rgba(cmap(i % 10), alpha)
-            else:
-                for i, stim in enumerate(unique_stimuli):
-                    color_map[stim] = _color_to_rgba(color[i], alpha)
         else:
             cmap = cm.get_cmap('tab10') 
             for i, stim in enumerate(unique_stimuli):

@@ -5,11 +5,39 @@ if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from glob import glob
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from collections import defaultdict
 from channel_info_get.extract_channel_info import ExtractChannelInfo
 from channel_info_get.stimulus_config_builder import generate_config_from_channel_meanings
+from in_experiment.transfer_tiff2npy import _group_folders_by_worm, _get_camera_subfolder
+from utils.read_vols_using_dask import extract_tiff_max_number
+
+def _get_experiment_tiff_num(ex_folder, **kwargs):
+    """
+    Get the maximum tiff number for each worm in the experiment folder
+    Args:
+        ex_folder: experiment folder path
+        camera_type: 'green' or 'red'
+    Returns:
+        tiff_num_dict: dict of worm_name to list of max tiff numbers from each ex folder
+    """
+    worm_groups = _group_folders_by_worm(Path(ex_folder))
+    for worm_name, folders in worm_groups.items():
+        print(f"  - {worm_name}: {len(folders['ex'])} ex folders")
+    
+    camera_type = kwargs.get('camera_type', 'green')
+    camera_subfolder = _get_camera_subfolder(camera_type)
+    tiff_num_dict = {}
+    for worm_name, folders in worm_groups.items():
+        tiff_nums = []
+        for worm_folder in folders['ex']:
+            tiff_folder = worm_folder / camera_subfolder
+            tiff_num = extract_tiff_max_number(tiff_folder)
+            tiff_nums.append(tiff_num)
+        tiff_num_dict[worm_name] = tiff_nums
+    return tiff_num_dict
 
 def _get_trial_folders4multiple(root_folder):
     """
@@ -93,12 +121,13 @@ def _merge_sheets_by_prefix(excel_path, output_path):
     return merged_sheets
 
 
-def process_labjack_data(root_folder, output_folder, config_file = None, FileMode='multiple', mode='merge'):
+def process_labjack_data(root_folder, output_folder, ex_folder=None, config_file = None, FileMode='multiple', mode='merge'):
     """
     Process labjack data for multiple trial folders
     Args:
         root_folder: root folder containing trial folders
         output_folder: folder to save processed data
+        ex_folder: experiment folder containing image data (optional, for correcting end frames)
         config_file: configuration file path
         FileMode: 'multiple' or 'single'
         mode: 'merge' or 'split' for single worm different trials
@@ -107,12 +136,17 @@ def process_labjack_data(root_folder, output_folder, config_file = None, FileMod
         trial_folders = _get_trial_folders4multiple(root_folder)
     else:
         trial_folders = [root_folder]
-
+    
+    tiff_num_dict = None
+    if ex_folder:
+        print(f"Extracting tiff numbers from {ex_folder}...")
+        tiff_num_dict = _get_experiment_tiff_num(ex_folder)
     extractor = ExtractChannelInfo(
         input_folder_list=trial_folders,
         output_folder=output_folder,
         config_file=config_file,
         FileMode=FileMode,
+        tiff_num_dict=tiff_num_dict
     )
     extractor.extract_channel_info()
 
@@ -121,16 +155,12 @@ def process_labjack_data(root_folder, output_folder, config_file = None, FileMod
         states_excel_path = os.path.join(output_folder, "output_states.xlsx")
         volumes_excel_path = os.path.join(output_folder, "output_volumes.xlsx")
         
-        merged_states_path = os.path.join(output_folder, "output_states_merged.xlsx")
         merged_volumes_path = os.path.join(output_folder, "output_volumes_merged.xlsx")
-        
-        if os.path.exists(states_excel_path):
-            _merge_sheets_by_prefix(states_excel_path, merged_states_path)
         
         if os.path.exists(volumes_excel_path):
             _merge_sheets_by_prefix(volumes_excel_path, merged_volumes_path)
         
-        print(f"Merge completed. Output files: {merged_states_path}, {merged_volumes_path}")
+        print(f"Merge completed. Output files: {merged_volumes_path}")
         
 
 
@@ -139,30 +169,33 @@ if __name__ == "__main__":
         "1": "Control1",
         "2": "Control2",
         "3": "Buffer",
-        "00": "60 supernatant",
-        "01": "61 supernatant",
-        "02": "62 supernatant",
-        "03": "68 supernatant",
-        "04": "78 supernatant",
-        "05": "c12 supernatant",
-        "06": "swb supernatant",
-        "09": "swb 1night",
-        "10": "c12 1night",
-        "11": "78 1night",
-        "12": "68 1night",
-        "13": "62 1night",
-        "14": "61 1night",
-        "15": "60 1night"
+        "00": "Diacetyl E6 s",
+        "01": "NaCl 100mM s",
+        "02": "Benzaldehyde E6 s",
+        "15": "2-Nonanone E6 s",
+        "14": "Isoamylalcohol E6 s",
+        "13": "1-Octanol E6 s",
+        "03": "EGCG 1uM t",
+        "12": "EGCG 10uM t",
+        "04": "L-Theanine 10uM t",
+        "11": "L-Theanine 1uM t",
+        "05": "Ethanol E3 s",
+        "10": "Ethanol E2 s",
+        "06": "Methanol E3 s",
+        "09": "Methanol E2 s",
+        "07": "DMSO E3 s",
+        "08": "DMSO E2 s",
     }
+
     generate_config_from_channel_meanings(
         channel_meanings=channel_meanings,
-        odor_json_path="data_load/config/bacteria.json",
-        color_scheme_path="data_load/config/bacteria_color_scheme.json",
-        output_directory=r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac",
+        odor_json_path=r"H:\Process_temporary\WJH\sensory_pipeline_python\data\config\stimulus.json",
+        color_scheme_path=r"H:\Process_temporary\WJH\sensory_pipeline_python\data\config\stimulus_color_scheme.json",
+        output_directory=r"H:\Process_temporary\WJH\olfactory\labjack_result\20251205",
         bit_mode="16-bit",
         slice_number=20,
         state_length=8
     )
 
-    root_folder = r'\\192.168.1.192\Odor\Jinghao-Wang\20251105_bac\labjack'
-    process_labjack_data(root_folder, output_folder=r'H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac', config_file= r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac\config.json" ,FileMode='multiple', mode='merge')
+    root_folder = r'\\192.168.1.192\Odor\Jinghao-Wang\20251205_tea_vehicle_test\labjack'
+    process_labjack_data(root_folder, ex_folder=r"\\192.168.1.192\Odor\Jinghao-Wang\20251205_tea_vehicle_test",output_folder=r'H:\Process_temporary\WJH\olfactory\labjack_result\20251205\fix', config_file= r"H:\Process_temporary\WJH\olfactory\labjack_result\20251205\config.json" ,FileMode='multiple', mode='merge')

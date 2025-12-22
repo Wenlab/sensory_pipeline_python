@@ -277,6 +277,7 @@ def transfer_tiff2npy(
     ex_output_folder=None,
     camera_type="red",
     show_progress=True,
+    worm_exclude_list=None,
     **kwargs
 ):
     """
@@ -311,7 +312,8 @@ def transfer_tiff2npy(
         Camera type to process: "red" or "green"
     show_progress : bool, default=True
         Whether to display progress bars
-        
+    worm_exclude_list : list or None, default=None
+        List of worm names to exclude from processing
     Example:
     --------
     >>> transfer_tiff2npy(
@@ -337,6 +339,12 @@ def transfer_tiff2npy(
     
     # Group folders by worm
     worm_groups = _group_folders_by_worm(ex_folder)
+    # Exclude specified worms
+    if worm_exclude_list:
+        worm_exclude_set = {w.lower() for w in worm_exclude_list}
+        worm_groups = {
+            w: folders for w, folders in worm_groups.items() if w not in worm_exclude_set
+        }
     
     if not worm_groups:
         print("No valid folders found. Exiting.")
@@ -395,9 +403,9 @@ def transfer_tiff2npy(
 
 
 if __name__ == "__main__":
-    experiment_folder_path = r"\\192.168.1.192\Odor\Jinghao-Wang\20251105_bac"
-    ref_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20251104\red"
-    # ex_output_folder = r"I:\WJH\infer\me\20251025\ZM\red\ex_volumes"
+    experiment_folder_path = r"\\192.168.1.192\Odor\Jinghao-Wang\20251022_WEN0065_Ecoli_Efs_GAM"
+    # ref_output_folder = r"H:\Process_temporary\WJH\olfactory\ID\image_data\20251104\red"
+    ex_output_folder = r"I:\WJH\raw_image\20251022_bac\ex_volumes"
     
     volume_read_params = {
         "z_start_frame_number": 0,
@@ -411,9 +419,10 @@ if __name__ == "__main__":
     
     transfer_tiff2npy(
         ex_folder_path=experiment_folder_path,
-        ref_output_folder=ref_output_folder,
-        ex_output_folder=None,
-        camera_type="red",
+        ref_output_folder=None,
+        ex_output_folder=ex_output_folder,
+        camera_type="green",
         show_progress=True,
-        volume_read_params=volume_read_params
+        volume_read_params=volume_read_params,
+        worm_exclude_list=["w1", "w2", "w4", "w5", "w6", "w7"]
     )
