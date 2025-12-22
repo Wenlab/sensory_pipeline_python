@@ -434,6 +434,51 @@ def reorganize_neuron_segments(neuron_segments_dict, date):
     return reorganized_dict
 
 
+def drop_wrong_trials(neuron_segments_dict_reorganized, neuron, stimulus, wrong_trials_list):
+    """
+    Drop trials specified in wrong_trials_list from neuron_segments_dict_reorganized for a specific neuron and stimulus.
+    
+    Parameters:
+    - neuron_segments_dict_reorganized: dict
+        The dictionary returned by reorganize_neuron_segments.
+    - neuron: str
+        The neuron group key (e.g., 'AWC_ON').
+    - stimulus: str
+        The stimulus type (e.g., 'benzaldehyde_high').
+    - wrong_trials_list: list of str
+        List of unique identifiers for trials to drop. 
+        Format: "{worm_key}_{segment_index}_{date}"
+    
+    Returns:
+    - neuron_segments_dict_reorganized: dict
+        The dictionary with specified trials removed.
+    """
+    if neuron not in neuron_segments_dict_reorganized:
+        print(f"Warning: Neuron group '{neuron}' not found.")
+        return neuron_segments_dict_reorganized
+        
+    if stimulus not in neuron_segments_dict_reorganized[neuron]:
+        print(f"Warning: Stimulus '{stimulus}' not found in neuron group '{neuron}'.")
+        return neuron_segments_dict_reorganized
+
+    wrong_trials_set = set(wrong_trials_list)
+    
+    # Filter the specific list of segments
+    original_segments = neuron_segments_dict_reorganized[neuron][stimulus]
+    cleaned_segments = []
+    
+    for segment in original_segments:
+        # Construct unique ID
+        trial_id = f"{segment['worm_key']}_{segment['segment_index']}_{segment['date']}"
+        
+        if trial_id not in wrong_trials_set:
+            cleaned_segments.append(segment)
+            
+    neuron_segments_dict_reorganized[neuron][stimulus] = cleaned_segments
+                
+    return neuron_segments_dict_reorganized
+
+
 # merge different date's neuron segments
 def merge_multiple_dicts(*dicts):
     """
