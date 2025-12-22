@@ -106,6 +106,10 @@ class SegmentdPCA:
             symmetric_name = neuron_name[:-1] + 'R'
         elif neuron_name.endswith('R'):
             symmetric_name = neuron_name[:-1] + 'L'
+        # elif neuron_name.endswith('ON'):
+        #     symmetric_name = neuron_name[:-2] + "OFF"
+        # elif neuron_name.endswith('OFF'):
+        #     symmetric_name = neuron_name[:-3] + "ON"
         else:
             return None
         
@@ -125,15 +129,77 @@ class SegmentdPCA:
         self.dpca_all = dpca
         return self.dpca_results
     
-    def plot_explained_variance(self, top_n=10, ax=None):
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(12,6))
+    def plot_variance_explained(self, n_components_to_plot=None):
+        """
+        Plot histogram for variance explained for raw data.
         
-        # get total explained variance for sorting
-        total_val = self.dpca_all.explained_variance_ratio_
-        sorted_indices = np.argsort(total_val)[::-1][:top_n]
+        :param n_components_to_plot: top n Component, none for all components.
+        """
+        if self.dpca_all is None:
+            print("Error: Please run perform_dpca() first.")
+            return
+            
+        import matplotlib.pyplot as plt
+        import numpy as np
 
-        # get explained variance for each component type
+        # get variance data
+        var_dict = self.dpca_all.explained_variance_ratio_
+        
+        total_components = len(list(var_dict.values())[0])
+        
+        if n_components_to_plot is None:
+            n_components_to_plot = total_components
+
+        n_plot = min(n_components_to_plot, total_components)
+        
+        # set plot parameter
+        ind = np.arange(n_plot) + 1
+        width = 0.7
+        
+        # dPCA 标准配色 (Kobak et al.)
+        # t (Time): 蓝色
+        # s (Stimulus): 红色/橙色
+        # st (Interaction): 黄色
+        colors = {
+            't': "#0F5685",  # Blue
+            's': '#D95319',  # Orange
+            'st': '#EDB120', # Yellow (Interaction)
+            'dt': '#7E2F8E'  # Purple (如果将来有其他 label)
+        }
+        
+        plt.figure(figsize=(12, 6))
+        bottom_tracker = np.zeros(n_plot)
+        
+        # 3. 循环绘制堆叠图
+        # 这里的顺序决定了堆叠的层级，通常按 t, s, st 顺序
+        for key in ['t', 's', 'st']:
+            if key in var_dict:
+                # 获取该 key 对前 n_plot 个 component 的方差贡献
+                values = var_dict[key][:n_plot]
+                
+                plt.bar(ind, values, width, bottom=bottom_tracker, 
+                        label=f'Marginalization: {key}', 
+                        color=colors.get(key, 'gray'))
+                
+                # 更新底部高度，以便下一层堆叠
+                bottom_tracker += values
+
+        # 4. 装饰图表
+        plt.xlabel('Component Index')
+        plt.ylabel('Proportion of Variance Explained')
+        plt.title('dPCA Variance Explained by Component')
+        plt.xticks(ind)
+        plt.legend(loc='upper right')
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+        
+        # 计算并显示总方差解释率
+        total_var_explained = np.sum(bottom_tracker)
+        plt.text(n_plot * 0.5, np.max(bottom_tracker)*0.9, 
+                f'Total Variance Explained (Top {n_plot}): {total_var_explained:.1%}', 
+                fontsize=12, ha='center', bbox=dict(facecolor='white', alpha=0.8))
+
+        plt.tight_layout()
+        plt.show()
         
 
     def plot_dpca_results(self, components=['t', 's', 'st'], component_indices=[0], 
@@ -152,7 +218,7 @@ class SegmentdPCA:
             raise ValueError("dPCA results not computed. Call perform_dpca() first.")
         
         Z = self.dpca_results
-        time = np.arange(Z['t'].shape[2])
+        time = np.arange(-5, Z['t'].shape[2]-5)
         
         # Create reverse mapping from index to stimulus name
         index_to_stimulus = {idx: stimulus for stimulus, idx in self.stimulus_index_map.items()}
@@ -192,11 +258,11 @@ class SegmentdPCA:
                 # Customize the plot
                 ax.set_title(f'{self._get_component_title(comp_type)} (Component {comp_idx + 1})', 
                            fontsize=12, fontweight='bold')
-                ax.set_xlabel('Time Points')
+                ax.set_xlabel('Time(s)')
                 ax.set_ylabel('dPC Score')
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
-                
+                ax.set_xticks(np.arange(-5, time[-1] + 1, 5))
                 # Add legend if requested and there's space
                 if show_legend and len(self.stimulus_index_map) <= 20:
                     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
@@ -694,10 +760,11 @@ class SegmentdPCA:
         # 5. Add stimulus names and group brackets
         label_ax = fig.add_axes([0, 0, left_margin_ratio, 1])
         label_ax.axis('off')
-        # ... (code from plot_dpca_grid for labels and brackets)
         for i, stimulus in enumerate(stimulus_order):
             y_pos = bottom_pos_list[i] + subplot_height / 2
             full_name = self._get_compound_name(stimulus).split(" ")[-1]
+            if len(full_name) > 3:
+                full_name = full_name[:3] + "."
             label_ax.text(0.95, y_pos, full_name, ha='right', va='center', fontsize=9, transform=label_ax.transAxes)
 
         bracket_x = 0.6
