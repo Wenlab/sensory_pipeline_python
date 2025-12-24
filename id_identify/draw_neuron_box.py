@@ -23,7 +23,7 @@ def transfer_neuron_pt_tuple_to_dict(neuron_pt_tuple):
             pt_dict[neuron_ID][volume_number] = neuron_points[neuron_ID][volume_number][:6]
     return pt_dict
 
-def create_mask_for_neuron_box(pt_tuple_dict, output_shape, volume_start_number=0,  depth_correction=0, save_dir=None, chunk_shape=(1, 8, 256, 256))->da.Array:
+def create_mask_for_neuron_box(pt_tuple_dict, output_shape, volume_start_number=0,  depth_correction=1, save_dir=None, chunk_shape=(1, 8, 256, 256))->da.Array:
     """
     Create a mask for neuron boxes
     Args:
