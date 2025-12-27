@@ -11,7 +11,7 @@ from scipy.ndimage import gaussian_filter1d
 from data_load.get_stimulus_info import get_stimulus_info, extract_intervals_from_excel
 from data_load.load_worm_data import load_worm_ID, load_worm_data
 from utils.interpolate import interpolate_over_nans
-
+from result_analysis.baseline_correction import apply_baseline_correction
 # %%
 def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', pre_segment=5, post_segment=30):
     """
@@ -541,6 +541,30 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
 
     return neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized
 
+def transfer_dict2dataframe(neuron_segments_dict):
+    """
+    convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
+    """ 
+    data_list = []
+    for neuron_name, stimuli_data in neuron_segments_dict.items():
+        for stimulus_type, segments in stimuli_data.items():
+                for segment in segments:
+                    delta_F_over_F0 = np.array(segment['deltaFoverF_0'])
+                    time_points = len(delta_F_over_F0)
+
+                    for t, dff in zip(range(time_points), delta_F_over_F0):
+                        data_list.append({
+                            'neuron': neuron_name,
+                            'stimulus': stimulus_type,
+                            'time_point': t,
+                            'delta_F_over_F0': dff,
+                            'worm_key': segment.get('worm_key', 'unknown'),
+                            'segment_index': segment.get('segment_index', 'unknown'),
+                            'date': segment.get('date', 'unknown')
+                        })
+
+    df = pd.DataFrame(data_list)
+    return df
 
 def load_and_process_worm_data(
     h5_file_path,
@@ -616,6 +640,9 @@ def load_and_process_worm_data(
                                                                                                             **kwargs
                                                                                                             )
 
+    neuron_segments_dict_corrected = apply_baseline_correction(neuron_segments_dict_reorganized, correction_window=kwargs.get('correction_window', 5))
+
+    neuron_segments_df = transfer_dict2dataframe(neuron_segments_dict_corrected)
     # return a dict
     return_dict = {
         "experiment_df": experiment_df,
@@ -624,51 +651,13 @@ def load_and_process_worm_data(
         "worm_data": worm_data,
         "neuron_segments_dict": neuron_segments_dict,
         "neuron_segments_dict_reorganized": neuron_segments_dict_reorganized,
+        "neuron_segments_dict_corrected": neuron_segments_dict_corrected,
         "neuron_groups": neuron_groups,
+        "neuron_segments_df": neuron_segments_df
     }
     return return_dict
 
 if __name__ == "__main__":
-    # sorting_config_0604 = {
-    #     'w3':{
-    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
-    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
-    #     },
-    #     'w4':{
-    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
-    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
-    #     },
-    #     'w6':{
-    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
-    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
-    #     },
-    #     'w7':{
-    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
-    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
-    #     },
-    #     'w10':{
-    #             'stimulus_sort': [6,7,4,5,2,3,0,1],
-    #             'buffer_sort': [0,7,8,5,6,3,4,1,2]
-    #     }
-    # }
-
-    # result_dict_0515_EGCG = load_and_process_worm_data(
-    #     h5_file_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\20250515_EGCG.h5",
-    #     channel_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\output_volumes.xlsx",
-    #     ID_info_path=r"H:\Process_temporary\WJH\olfactory\ID\result\20250515_EGCG\ID0515_EGCG.xlsx",
-    #     date="20250515",
-    #     vps_setting=5,
-    #     exclude_key=["w3","w4"],
-    #     boundary_method='preserve'  # Use boundary preservation for better edge features
-    # )
-    # from utils.HDF5Toolkit import save_h5file
-    # save_h5file(
-    #     r"H:\Process_temporary\WJH\olfactory\ID\result\20250604\neuron_segments_dict_0604_odor.h5",
-    #     root_name='neuron_segments_dict',
-    #     mode='w',
-    #     **return_dict["neuron_segments_dict_reorganized"]
-    # )
-
     result_dict_20251111 = load_and_process_worm_data(
         h5_file_path=r"H:\Process_temporary\WJH\olfactory\infer_result\20251111\20251111.h5",
         channel_info_path=r"H:\Process_temporary\WJH\olfactory\labjack_result\20251111\output_volumes_merged.xlsx",
