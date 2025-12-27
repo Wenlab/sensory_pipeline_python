@@ -653,6 +653,8 @@ def create_neuron_mapping(neuron_segments_dict):
     
     # Create mappings for neurons that have both L and R versions
     for base_name, neurons in lr_candidates.items():
+        if base_name == 'ASE':
+            continue
         if len(neurons) == 2:
             has_left = any(n.endswith('L') for n in neurons)
             has_right = any(n.endswith('R') for n in neurons)
@@ -675,75 +677,39 @@ def combine_lr_neurons(neuron_segments_dict):
     neuron_groups = {}
     for neuron in neuron_segments_dict:
         if neuron.endswith('L') or neuron.endswith('R'):
-            if neuron not in ['ASEL', 'ASER']:  # Exclude special cases
-                base_name = neuron[:-1]  # Remove the L or R suffix
-                if base_name not in neuron_groups:
-                    neuron_groups[base_name] = []
-                neuron_groups[base_name].append(neuron)
+            base_name = neuron[:-1]  # Remove the L or R suffix
+            if base_name not in neuron_groups:
+                neuron_groups[base_name] = []
+            neuron_groups[base_name].append(neuron)
     
     # Combine neuron pairs
     for base_name, neurons in neuron_groups.items():
+        # Special handling for ASE - do not combine
+        if base_name == 'ASE':
+            for neuron in neurons:
+                combined_dict[neuron] = neuron_segments_dict[neuron]
+            continue
+
         if len(neurons) == 2:  # If we have both L and R versions
             # Verify one ends with L and one with R
             has_left = any(n.endswith('L') for n in neurons)
             has_right = any(n.endswith('R') for n in neurons)
             
             if has_left and has_right:
-                left = next((n for n in neurons if n.endswith('L')), None)
-                right = next((n for n in neurons if n.endswith('R')), None)
+                # Create new entry for the combined neuron
+                combined_dict[base_name] = {}
                 
-                if left and right:
-                    # Create new entry for the combined neuron
-                    combined_dict[base_name] = {}
-                    
-                    # Find common stimuli
-                    left_stimuli = set(neuron_segments_dict[left].keys())
-                    right_stimuli = set(neuron_segments_dict[right].keys())
-                    common_stimuli = left_stimuli.intersection(right_stimuli)
-                    
-                    # Process each stimulus
-                    for stim in common_stimuli:
-                        combined_dict[base_name][stim] = []
-                        
-                        # Get segments from both neurons
-                        left_segments = neuron_segments_dict[left][stim]
-                        right_segments = neuron_segments_dict[right][stim]
-                        
-                        # Take the minimum number of segments
-                        num_segments = min(len(left_segments), len(right_segments))
-                        
-                        # Average corresponding segments
-                        for i in range(num_segments):
-                            left_seg = left_segments[i]
-                            right_seg = right_segments[i]
-                            
-                            # Create a new segment with averaged data
-                            combined_seg = {}
-                            
-                            # Copy metadata from either neuron
-                            for key in ['worm_key', 'date', 'segment_index']:
-                                combined_seg[key] = left_seg.get(key, right_seg.get(key, 'unknown'))
-                            
-                            # Average the time series data
-                            if 'deltaFoverF_0' in left_seg and 'deltaFoverF_0' in right_seg:
-                                left_data = left_seg['deltaFoverF_0']
-                                right_data = right_seg['deltaFoverF_0']
-                                
-                                # Make sure they're the same length
-                                min_len = min(len(left_data), len(right_data))
-                                left_data = left_data[:min_len]
-                                right_data = right_data[:min_len]
-                                
-                                # Average the data
-                                combined_seg['deltaFoverF_0'] = np.mean([left_data, right_data], axis=0)
-                                
-                                combined_dict[base_name][stim].append(combined_seg)
-                    
-                    # Add any stimuli that only one neuron has
-                    all_stimuli = left_stimuli.union(right_stimuli)
-                    for stim in all_stimuli - common_stimuli:
-                        source_neuron = left if stim in left_stimuli else right
-                        combined_dict[base_name][stim] = neuron_segments_dict[source_neuron][stim]
+                # Collect all stimuli from both neurons
+                all_stimuli = set()
+                for neuron in neurons:
+                    all_stimuli.update(neuron_segments_dict[neuron].keys())
+                
+                for stim in all_stimuli:
+                    combined_dict[base_name][stim] = []
+                    for neuron in neurons:
+                        if stim in neuron_segments_dict[neuron]:
+                            # Extend the list with trials from this neuron
+                            combined_dict[base_name][stim].extend(neuron_segments_dict[neuron][stim])
             else:
                 # Keep individual neurons that don't have a pair
                 for neuron in neurons:
