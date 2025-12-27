@@ -18,32 +18,6 @@ from data_load.get_stimulus_info import *
 
 
 #%%
-def transfer_dict2dataframe(neuron_segments_dict):
-    """
-    convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
-    """ 
-    data_list = []
-    for neuron_name, stimuli_data in neuron_segments_dict.items():
-        for stimulus_type, segments in stimuli_data.items():
-                for segment in segments:
-                    delta_F_over_F0 = np.array(segment['deltaFoverF_0'])
-                    time_points = len(delta_F_over_F0)
-
-                    for t, dff in zip(range(time_points), delta_F_over_F0):
-                        data_list.append({
-                            'neuron': neuron_name,
-                            'stimulus': stimulus_type,
-                            'time_point': t,
-                            'delta_F_over_F0': dff,
-                            'worm_key': segment.get('worm_key', 'unknown'),
-                            'segment_index': segment.get('segment_index', 'unknown'),
-                            'date': segment.get('date', 'unknown')
-                        })
-
-    df = pd.DataFrame(data_list)
-    return df
-
-
 def relplot_mean_signal(neuron_segments_df, 
                         height=2, 
                         aspect=2, 
