@@ -935,39 +935,3 @@ class SegmentdPCA:
             print(f"Figure saved to {path}")
 
         plt.show()
-if __name__ == "__main__":
-    import sys
-    import os
-    import json
-    
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from utils.HDF5Toolkit import load_h5file
-    neuron_segments_dict = load_h5file(
-            path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
-            root_name= 'neuron_segments_dict')
-    from result_analysis.baseline_correction import BaselineCorrection
-    neuron_segments_dict_correct = BaselineCorrection(neuron_segments_dict)
-    neuron_segments_dict_correct.apply_baseline_correction()
-    neuron_segments_dict = neuron_segments_dict_correct.corrected_data
-    with open(r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_info.json", 'r') as f:
-        compound_info = json.load(f)
-    with open(r"H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config\compound_color_scheme.json", 'r') as f:
-        compound_color_scheme = json.load(f)
-    dpca_analyser = SegmentdPCA(neuron_segments_dict, 
-                              compound_info=compound_info, 
-                              compound_color_scheme=compound_color_scheme)
-    dpca_analyser.arrange_data()
-    dpca_analyser.fill_blank_neuron_stimuli_pair()
-    dpca_analyser.perform_dpca()
-
-    # plot
-    dpca_analyser.plot_dpca_results(
-    components=['t', 's', 'st'],  # Which components to plot
-    component_indices=[0, 1],     # Plot 1st and 2nd components
-    figsize=(20, 8),              # Custom figure size
-    show_legend=True              # Show compound names
-    )
-    dpca_analyser.plot_concentration_trends('c1')  # c1 = EGCG
-    dpca_analyser.plot_compound_groups()
-
-    dpca_analyser.get_compound_summary()
