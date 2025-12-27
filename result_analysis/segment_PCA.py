@@ -925,32 +925,4 @@ def example_usage():
     
     # Save results
     # pca_analyzer.save_results('pca_results.npz')
-    
 
-if __name__ == "__main__":
-    import sys
-    import os
-    import json
-    
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from utils.HDF5Toolkit import load_h5file
-    neuron_segments_dict = load_h5file(
-            path = r"I:\WJH\flavor\neuron_segments_dict_filter.h5",
-            root_name= 'neuron_segments_dict')
-    from result_analysis.baseline_correction import BaselineCorrection
-    neuron_segments_dict_correct = BaselineCorrection(neuron_segments_dict)
-    neuron_segments_dict_correct.apply_baseline_correction()
-    neuron_segments_dict = neuron_segments_dict_correct.corrected_data
-    pca_analyzer = SegmentPCA(neuron_segments_dict, 
-                            config_path=r'H:\Process_temporary\WJH\sensory_pipeline_python\data_load\config')
-    pca_analyzer.arrange_data(time_window=None, average_trials=True, fill_missing_pairs=True)
-    pca_analyzer.perform_pca(n_components=10, center_data=True)
-    pca_analyzer.plot_explained_variance()
-    pca_analyzer.plot_pca_scatter(
-        pc_x=1, pc_y=2, 
-        use_compound_names=True,  # Use compound names instead of codes
-        show_legend=True
-    )
-    pca_analyzer.plot_pca_scatter(pc_x=1, pc_y=3, use_compound_names=True)
-    # pca_analyzer.plot_pca_scatter(pc_x=2, pc_y=3, use_compound_names=True)
-    contributions = pca_analyzer.get_component_contributions(component_idx=0, top_n=10)
