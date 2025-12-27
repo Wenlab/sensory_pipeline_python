@@ -8,7 +8,7 @@ import sys
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from result_plot.draw_mean_signal import transfer_dict2dataframe
+from data_load.process_worm_data import transfer_dict2dataframe
 def draw_pair_heatmap(df, save_folder, stimulus_onset=5, **kwargs):
     """
     Draws heatmaps of trials for each neuron-stimulus pair using the DataFrame structure.
@@ -52,10 +52,9 @@ def draw_pair_heatmap(df, save_folder, stimulus_onset=5, **kwargs):
             neuron_df = stim_df[stim_df['neuron'] == neuron]
             
             # Pivot to get trials x time
-            # We use ['date', 'worm_key', 'segment_index'] as the unique identifier for a trial
-            # This assumes that the combination of date, worm_key, and segment_index is unique for each trial
+            # We use ['worm_key', 'segment_index', 'date'] as the unique identifier for a trial
             pivot_df = neuron_df.pivot_table(
-                index=['date', 'worm_key', 'segment_index'], 
+                index=['date','worm_key', 'segment_index'], 
                 columns='time_point', 
                 values='delta_F_over_F0'
             )
@@ -98,7 +97,12 @@ def draw_pair_heatmap(df, save_folder, stimulus_onset=5, **kwargs):
             ax.set_xticklabels(xticklabels, rotation=0)
 
             # set y label
-            y_labels = [f"{str(date)}_{str(key)}_{idx}" for date, key, idx in pivot_df.index]
+            y_labels = []
+            for date_val, worm_key, segment_index in pivot_df.index:
+                d = date_val.decode('utf-8') if isinstance(date_val, bytes) else str(date_val)
+                k = worm_key.decode('utf-8') if isinstance(worm_key, bytes) else str(worm_key)
+                s = segment_index.decode('utf-8') if isinstance(segment_index, bytes) else str(segment_index)
+                y_labels.append(f"{d}_{k}_{s}")
             ax.set_yticks(np.arange(len(y_labels)) + 0.5)
             ax.set_yticklabels(y_labels, rotation=45, fontsize=4)
             
