@@ -7,10 +7,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 
 
 def parse_concentration(concentration_str: str, *_: object) -> Optional[Tuple[int, float]]:
-    """Return an ordering key for recognised concentration strings.
-
-    Additional positional arguments are ignored for backwards compatibility.
-    """
+    """Return an ordering key for recognised concentration strings."""
 
     text = concentration_str.strip()
     if not text:
