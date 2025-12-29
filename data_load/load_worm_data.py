@@ -7,7 +7,6 @@ import numpy as np
 if __name__ == '__main__':
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from data_load.get_stimulus_info import extract_intervals_from_excel, extract_intervals
-from data_load.df_sort import combine_alternately, split_alternately, sort_by_intervals, sort_intervals_combined
 from data_load.curve_fit import calculate_delta_F_over_F0
 
 #%%
@@ -27,8 +26,6 @@ def load_worm_ID(file_path):
 def load_worm_data_dict(
     key, f, experiment_df,
     worm, stimulus_lists, 
-    stimulus_sort=None, buffer_sort=None, 
-    need_sorting=False,
     vps_setting=1,
     baseline_pre=6, baseline_post=1,
     background_noise=102,
@@ -84,71 +81,21 @@ def load_worm_data_dict(
 
     stimulus_list = stimulus_lists.get(key, [])
 
-    # 需要排序的特殊处理
-    if need_sorting:
-        combined_intervals = sort_intervals_combined(
-            stimulus_intervals, stimulus_sort, 
-            buffer_intervals, buffer_sort
-        )
-        
-        # 对各个DataFrame进行排序
-        delta_F_over_F_sorted = sort_by_intervals(
-            delta_F_over_F0, stimulus_intervals, stimulus_sort, 
-            buffer_intervals, buffer_sort
-        )
-        intensity_sorted = sort_by_intervals(
-            intensity, stimulus_intervals, stimulus_sort, 
-            buffer_intervals, buffer_sort
-        )
-        fitted_F0_sorted = sort_by_intervals(
-            fitted_F0, stimulus_intervals, stimulus_sort, 
-            buffer_intervals, buffer_sort
-        )
-
-
-        # 调整intervals
-        interval_list = [end - start for start, end in combined_intervals]
-        
-        start = 0
-        combined_intervals_recovered = []
-        for index in interval_list:
-            end = start + index
-            combined_intervals_recovered.append((start, end))
-            start = end
-        
-        buffer_intervals_re, stimulus_intervals_re = split_alternately(
-            combined_intervals_recovered
-        )
-
-        stimulus_list = [stimulus_list[i] for i in stimulus_sort]
-
-        # 存储排序后的数据
-        return {
-            'intensity': intensity_sorted,
-            'biological_ID': modified_ID_df,
-            'fitted_F0': fitted_F0_sorted,
-            'quality_info': quality_info,
-            'delta_F_over_F': delta_F_over_F_sorted,
-            'stimulus_intervals': stimulus_intervals_re,
-            'buffer_intervals': buffer_intervals_re,
-            'stimulus_list': stimulus_list
-        }
-    else:
-        # 存储原始数据
-        return {
-            'intensity': intensity,
-            'biological_ID': modified_ID_df,
-            'fitted_F0': fitted_F0,
-            'quality_info': quality_info,
-            'delta_F_over_F': delta_F_over_F0,
-            'stimulus_intervals': stimulus_intervals,
-            'buffer_intervals': buffer_intervals,
-            'stimulus_list': stimulus_list
-        }
+    # 存储原始数据
+    return {
+        'intensity': intensity,
+        'biological_ID': modified_ID_df,
+        'fitted_F0': fitted_F0,
+        'quality_info': quality_info,
+        'delta_F_over_F': delta_F_over_F0,
+        'stimulus_intervals': stimulus_intervals,
+        'buffer_intervals': buffer_intervals,
+        'stimulus_list': stimulus_list
+    }
 
 def load_worm_data(
     h5_file_path, experiment_info, worm_id, 
-    stimulus_lists, sorting_config=None, exclude_key=None, vps_setting=1,
+    stimulus_lists, exclude_key=None, vps_setting=1,
     baseline_pre=6, baseline_post=1,
     background_noise=102,
 ):
@@ -177,29 +124,13 @@ def load_worm_data(
         for key in f.keys():
             if exclude_key and key in exclude_key:
                 continue
-            # 检查是否需要排序
-            if sorting_config and key in sorting_config:
-                sort_params = sorting_config[key]
-                worm_data[key] = load_worm_data_dict(
-                        key, f, experiment_info, worm_id, stimulus_lists,
-                        stimulus_sort=sort_params.get('stimulus_sort'),
-                        buffer_sort=sort_params.get('buffer_sort'),
-                        need_sorting=True,
-                        vps_setting=vps_setting,
-                        baseline_pre=baseline_pre,
-                        baseline_post=baseline_post,
-                        background_noise=background_noise
-                    )
-            else:
-                # 不需要排序的情况
-                worm_data[key] = load_worm_data_dict(
-                    key, f, experiment_info, worm_id, stimulus_lists,
-                    vps_setting=vps_setting,
-                    baseline_pre=baseline_pre,
-                    baseline_post=baseline_post,
-                    background_noise=background_noise
-                )
-    
+            worm_data[key] = load_worm_data_dict(
+                key, f, experiment_info, worm_id, stimulus_lists,
+                vps_setting=vps_setting,
+                baseline_pre=baseline_pre,
+                baseline_post=baseline_post,
+                background_noise=background_noise
+            )
     return worm_data
 
 #%%
@@ -207,24 +138,12 @@ if __name__ == '__main__':
     folder_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20250421_EGCG"
     info_excel = os.path.join(folder_path, 'output_volumes.xlsx')
     experiment_info = extract_intervals_from_excel(info_excel)
-
-    stimulus_lists_0421_EGCG = {
-    'w1': ['c1_1', 'c1_2', 'c1_3', 'c1_4', 'c1_5'] * 3,
-    'w2': ['c1_1', 'c1_2', 'c1_3', 'c1_4', 'c1_5'] * 3,
-    'w3': ['c1_1', 'c1_2', 'c1_3', 'c1_4', 'c1_5'] * 3,
-    'w4': ['c1_1', 'c1_2', 'c1_3', 'c1_4', 'c1_5'] * 3,
-    'w5': ['c1_1', 'c1_2', 'c1_3', 'c1_4', 'c1_5'] * 3,
-    'w6': ['c1_5', 'c1_4', 'c1_3', 'c1_2', 'c1_1'] * 3,  # Reversed and reorder the delta_F_over_F0
-    }
-
     ID_0421_EGCG = load_worm_ID(folder_path + r'\ID0421EGCG.xlsx')
     worm_data_0421_EGCG = {}
     with h5py.File(folder_path + r'\20250421_EGCG.h5', 'r') as f:
         for key in f.keys():
-            if key == 'w2' or key == 'w3':
-                worm_data_0421_EGCG[key] = load_worm_data_dict(
-                    key, f, experiment_info, ID_0421_EGCG, 
-                    stimulus_lists=stimulus_lists_0421_EGCG
-                )
+            worm_data_0421_EGCG[key] = load_worm_data_dict(
+                key, f, experiment_info, ID_0421_EGCG, 
+            )
 
     print('done')

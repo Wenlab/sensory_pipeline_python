@@ -327,71 +327,7 @@ def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_s
     
     return seg_data_downsampled, pre_length, pre_length + stimulus_length - 1
 
-def per_worm_zscore(neuron_segments_dict, group_size=5, if_group=False):
-    """
-    对每个worm_key对应的所有deltaFoverF_0按group_size进行分组后拼接进行z-score标准化，并记录每个组的均值和标准差。
-    Parameters:
-    - neuron_segments_dict: dict
-        Dictionary containing segments data for each neuron group and worm
-        - group_key: neuron group key
-            - worm_key: worm key
-                - segment_index: segment index
-                - stimulus_type: stimulus type
-                - deltaFoverF_0: deltaFoverF_0
-                - start_time: start time
-                - end_time: end time
-    - group_size: int, a group contains different stimulus segments
-    """
-    # 用于存储每个worm_key的均值和标准差
-    worm_stats = {}
 
-    for group_key, worm_data in neuron_segments_dict.items():
-        for worm_key, segments in worm_data.items():
-            # 将所有deltaFoverF_0收集到一个列表中
-            all_data = [np.array(seg["deltaFoverF_0"]) for seg in segments]
-
-            # 按照group_size分组并拼接
-            if if_group:
-                grouped_data = []
-                for i in range(0, len(all_data), group_size):
-                    # 取出当前组的deltaFoverF_0并进行拼接
-                    group = np.concatenate(all_data[i : i + group_size])
-                    grouped_data.append(group)
-
-                # 计算拼接后的分组数据的均值和标准差
-                group_means = []
-                group_stds = []
-                for group in grouped_data:
-                    mean_val = np.mean(group)
-                    std_val = np.std(group, ddof=1) if len(group) > 1 else 1.0
-                    group_means.append(mean_val)
-                    group_stds.append(std_val if std_val != 0 else 1.0)
-            else:
-                # 如果不分组，直接计算均值和标准差
-                all_data = np.concatenate(all_data)
-                mean_val = np.mean(all_data)
-                std_val = np.std(all_data, ddof=1) if len(all_data) > 1 else 1.0
-                group_means = [mean_val]
-                group_stds = [std_val if std_val != 0 else 1.0]
-
-            # 对每个deltaFoverF_0进行z-score标准化
-            for i, seg in enumerate(segments):
-                # 计算当前segment的索引
-                group_idx = i // group_size if if_group else 0
-                seg_data = np.array(seg["deltaFoverF_0"])
-
-                # 获取对应组的均值和标准差
-                mean_val = group_means[group_idx]
-                std_val = group_stds[group_idx]
-
-                seg["original_mean"] = mean_val
-                seg["original_std"] = std_val
-                seg["z_scored"] = (seg_data - mean_val) / std_val
-
-            # 记录worm_key的均值和标准差
-            worm_stats[worm_key] = {"mean": group_means, "std": group_stds}
-
-    return neuron_segments_dict, worm_stats
 
 
 def reorganize_neuron_segments(neuron_segments_dict, date):
@@ -421,9 +357,6 @@ def reorganize_neuron_segments(neuron_segments_dict, date):
                         "deltaFoverF_0": segment["deltaFoverF_0"],
                         "start_time": segment["start_time"],
                         "end_time": segment["end_time"],
-                        "z_scored": segment.get(
-                            "z_scored", None
-                        ),  # z-score标准化后的数据
                         "scaled_data": segment.get(
                             "scaled_data", None
                         ),  # max_abs_scale_neuron_segments_group_worm
@@ -500,19 +433,10 @@ def merge_multiple_dicts(*dicts):
     return merged_dict
 
 
-def process_neuron_segments(neuron_segments_dict, group_size=5, if_group=False):
-    """
-    z-score
-    """
-    # z-score标准化并记录每种stimulus_type的统计量
-    neuron_segments_dict, stimulus_stats = per_worm_zscore(
-        neuron_segments_dict, group_size, if_group
-    )
-
-    return neuron_segments_dict
 
 
-def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=False, vps_setting=1, boundary_method='preserve', **kwargs):
+
+def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_method='preserve', **kwargs):
     """
     Process worm data to extract neuron segments and perform z-score normalization.
     Parameters:
@@ -530,9 +454,7 @@ def extract_and_normalize_worm_data(worm_data, date, group_size=5, if_group=Fals
     neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method, pre_segment=kwargs.get('pre_segment',5), post_segment=kwargs.get('post_segment',30))
 
     # 2. Process neuron segments
-    neuron_segments_dict = process_neuron_segments(
-        neuron_segments_dict, group_size, if_group
-    )
+
 
     # 3. Reorganize neuron segments
     neuron_segments_dict_reorganized = reorganize_neuron_segments(
@@ -572,14 +494,11 @@ def load_and_process_worm_data(
     ID_info_path,
     date,
     stimulus_lists=None,
-    sorting_config=None,
     exclude_key=None,
     vps_setting=1,
     baseline_pre=6,
     baseline_post=1,
     background_noise=102,
-    group_size=5,
-    if_group=False,
     boundary_method='preserve',
     **kwargs
 ):
@@ -598,8 +517,7 @@ def load_and_process_worm_data(
     - baseline_pre: int, baseline period before stimulus
     - baseline_post: int, baseline period after stimulus
     - background_noise: float, background noise level
-    - group_size: int, size of stimulus groups for z-score normalization
-    - if_group: bool, whether to perform group-wise normalization
+
     - boundary_method: str, method for boundary preservation during downsampling
         - 'preserve': preserve exact boundary points
         - 'weighted': weighted averaging with boundary emphasis
@@ -623,7 +541,6 @@ def load_and_process_worm_data(
                                experiment_info=experiment_df,
                                worm_id=ID_info,
                                stimulus_lists=stimulus_lists,
-                               sorting_config=sorting_config,
                                exclude_key=exclude_key,
                                vps_setting=vps_setting,
                                baseline_pre=baseline_pre,
@@ -633,8 +550,6 @@ def load_and_process_worm_data(
     # process and segment
     neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized = extract_and_normalize_worm_data(worm_data=worm_data,
                                                                                                             date=date,
-                                                                                                            group_size=group_size,
-                                                                                                            if_group=if_group,
                                                                                                             vps_setting=vps_setting,
                                                                                                             boundary_method=boundary_method,
                                                                                                             **kwargs
