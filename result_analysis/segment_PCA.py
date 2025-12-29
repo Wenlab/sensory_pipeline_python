@@ -9,6 +9,17 @@ import os
 
 class SegmentPCA:
     def __init__(self, neuron_segments_dict, config_path=None):
+        """
+        Initialize SegmentPCA with neuron segments data.
+        
+        Parameters:
+        -----------
+        neuron_segments_dict : dict
+            Dictionary with structure {neuron_group: {stimulus_type: [trial data]}}
+        config_path : str, optional
+            Path to config directory with compound_info.json and compound_color_scheme.json.
+            If None, will try to extract from embedded trial 'stim_name' and 'stim_color'.
+        """
         self.data = neuron_segments_dict
         self.pca_results = {}
         self.arranged_data = None
@@ -21,8 +32,24 @@ class SegmentPCA:
             self.compound_info = self._load_compound_info(config_path)
             self.color_scheme = self._load_color_scheme(config_path)
         else:
-            self.compound_info = {}
-            self.color_scheme = {}
+            # Try to extract from embedded trial data
+            self.compound_info, self.color_scheme = self._extract_metadata_from_trials()
+    
+    def _extract_metadata_from_trials(self):
+        """Extract stim_name and stim_color from embedded trial data."""
+        compound_info = {}
+        color_scheme = {}
+        
+        for neuron, stimuli in self.data.items():
+            for stim_type, segments in stimuli.items():
+                if segments:
+                    first_seg = segments[0]
+                    if stim_type not in compound_info:
+                        compound_info[stim_type] = first_seg.get('stim_name', stim_type)
+                    if stim_type not in color_scheme:
+                        color_scheme[stim_type] = first_seg.get('stim_color', '#808080')
+        
+        return compound_info, color_scheme
         
     def _load_compound_info(self, config_path):
         """Load compound information from JSON file."""

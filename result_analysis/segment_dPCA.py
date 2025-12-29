@@ -22,6 +22,15 @@ class SegmentdPCA:
     def __init__(self, neuron_segments_dict, compound_info=None, compound_color_scheme=None):
         """
         Initialize the SegmentdPCA class with neuron segments data.
+        
+        Parameters:
+        -----------
+        neuron_segments_dict : dict
+            Dictionary with structure {neuron_group: {stimulus_type: [trial data]}}
+        compound_info : dict, optional
+            Maps stimulus codes to descriptive names. If None, will extract from trial 'stim_name'.
+        compound_color_scheme : dict, optional
+            Maps stimulus codes to colors. If None, will extract from trial 'stim_color'.
         """
         self.data = neuron_segments_dict
         self.dpca_results = None
@@ -29,8 +38,33 @@ class SegmentdPCA:
         self.dpca_all = None
         self.neuron_index_map = {}
         self.stimulus_index_map = {}
+        
+        # Extract metadata from embedded trial data if not provided
+        if compound_info is None or compound_color_scheme is None:
+            extracted_info, extracted_colors = self._extract_metadata_from_trials()
+            if compound_info is None:
+                compound_info = extracted_info
+            if compound_color_scheme is None:
+                compound_color_scheme = extracted_colors
+        
         self.compound_info = compound_info
         self.compound_color_scheme = compound_color_scheme
+    
+    def _extract_metadata_from_trials(self):
+        """Extract stim_name and stim_color from embedded trial data."""
+        compound_info = {}
+        compound_color_scheme = {}
+        
+        for neuron, stimuli in self.data.items():
+            for stim_type, segments in stimuli.items():
+                if segments:
+                    first_seg = segments[0]
+                    if stim_type not in compound_info:
+                        compound_info[stim_type] = first_seg.get('stim_name', stim_type)
+                    if stim_type not in compound_color_scheme:
+                        compound_color_scheme[stim_type] = first_seg.get('stim_color', '#808080')
+        
+        return compound_info, compound_color_scheme
 
     def get_neuron_stimuli_info(self):
         """

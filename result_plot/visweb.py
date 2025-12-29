@@ -65,29 +65,91 @@ def get_stimulus_label(stimulus_code, odor_information=None):
         return f"{stimulus_code}: {odor_information[stimulus_code]}"
     return stimulus_code
 
+
+def extract_metadata_from_dict(neuron_segments_dict):
+    """
+    Extract stim_name and stim_color mappings from the trial data embedded in the dictionary.
+    
+    Parameters:
+    -----------
+    neuron_segments_dict : dict
+        Dictionary with structure {neuron_group: {stimulus_type: [trial data]}}
+        Each trial should have 'stim_name' and 'stim_color' keys.
+    
+    Returns:
+    --------
+    odor_information : dict
+        Mapping from stimulus_type to stim_name
+    stimulus_color_map : dict
+        Mapping from stimulus_type to stim_color
+    """
+    odor_information = {}
+    stimulus_color_map = {}
+    
+    for neuron, stimuli in neuron_segments_dict.items():
+        for stim_type, segments in stimuli.items():
+            if segments:
+                first_seg = segments[0]
+                # Extract stim_name if not already present
+                if stim_type not in odor_information:
+                    odor_information[stim_type] = first_seg.get('stim_name', stim_type)
+                # Extract stim_color if not already present
+                if stim_type not in stimulus_color_map:
+                    stimulus_color_map[stim_type] = first_seg.get('stim_color', '#808080')
+    
+    return odor_information, stimulus_color_map
+
+
 def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimulus_color_map=None):
     """
     Create a streamlined Dash app for visualizing neuronal responses.
     
     Parameters:
     -----------
-    neuron_segments_dict : dict
+    neuron_segments_dict : dict or pd.DataFrame
         Dictionary with structure {neuron_group: {stimulus_type: [trial data]}}
+        or a DataFrame with columns 'neuron', 'stimulus', 'time_point', 'delta_F_over_F0', etc.
     odor_information : dict, optional
-        Dictionary mapping stimulus codes to descriptions
+        Dictionary mapping stimulus codes to descriptions. If None, will try to extract from trial data.
+    stimulus_color_map : dict, optional
+        Dictionary mapping stimulus codes to color strings. If None, will try to extract from trial data.
     """
     
-    # Extract all available data options
-    all_neurons = sorted(neuron_segments_dict.keys())
+    # Check if input is a DataFrame
+    is_dataframe = isinstance(neuron_segments_dict, pd.DataFrame)
     
-    # Extract all unique stimuli
-    all_stimuli = set()
-    for neuron in neuron_segments_dict:
-        all_stimuli.update(neuron_segments_dict[neuron].keys())
-    all_stimuli = sorted(all_stimuli)
+    if is_dataframe:
+        # Convert DataFrame to dict format for existing logic (temporary)
+        # TODO: Implement native DataFrame support in generate_response_figure
+        df = neuron_segments_dict
+        all_neurons = sorted(df['neuron'].unique().tolist())
+        all_stimuli = sorted(df['stimulus'].unique().tolist())
+        
+        # Extract metadata from DataFrame
+        if odor_information is None:
+            odor_information = df.drop_duplicates('stimulus').set_index('stimulus')['stim_name'].to_dict() if 'stim_name' in df.columns else {}
+        if stimulus_color_map is None:
+            stimulus_color_map = df.drop_duplicates('stimulus').set_index('stimulus')['stim_color'].to_dict() if 'stim_color' in df.columns else {}
+    else:
+        # Standard dict input
+        all_neurons = sorted(neuron_segments_dict.keys())
+        
+        # Extract all unique stimuli
+        all_stimuli = set()
+        for neuron in neuron_segments_dict:
+            all_stimuli.update(neuron_segments_dict[neuron].keys())
+        all_stimuli = sorted(all_stimuli)
+        
+        # Extract metadata from embedded trial data if not provided externally
+        if odor_information is None or stimulus_color_map is None:
+            extracted_odor_info, extracted_color_map = extract_metadata_from_dict(neuron_segments_dict)
+            if odor_information is None:
+                odor_information = extracted_odor_info
+            if stimulus_color_map is None:
+                stimulus_color_map = extracted_color_map
     
-    # Generate colors automatically for all stimuli
-    if stimulus_color_map is None:
+    # Generate colors automatically for all stimuli if still empty
+    if not stimulus_color_map:
         stimulus_color_map = generate_compound_color_scheme(all_stimuli)
 
     # Preprocess data for faster plotting
