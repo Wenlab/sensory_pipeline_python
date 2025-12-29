@@ -1,5 +1,3 @@
-from utils.prints import print_log_message
-
 import numpy as np
 from scipy.spatial import KDTree
 
