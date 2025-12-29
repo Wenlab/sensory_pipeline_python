@@ -296,7 +296,6 @@ def save_volumes_with_vol_range(
     
     print(f"Successfully saved {len(selected_vols)} volumes to {output_folder}")
 
-# Example usage function
 def process_experiment_with_vol_range(
     exp_path,
     output_folder,
@@ -517,7 +516,6 @@ def save_volumes_with_tiff_range(
 
     return saved_files
 
-# Updated wrapper function
 def process_experiment_with_tiff_range(
     exp_path,
     output_folder,
