@@ -101,10 +101,46 @@ class ExtractChannelInfo:
     def map_state(self, state):
         return self.state_mappings.get(state, "Unknown")
 
+    def correct_counter(self, master, slave):
+        corrected = np.array(master, copy=True)
+        n = len(master)
+        diff_indices = np.where(master != slave)[0]
+        
+        for i in diff_indices:
+            prev_val = corrected[i-1] if i > 0 else None
+            next_val = master[i+1] if i < n-1 else None
+            
+            master_ok = True
+            if prev_val is not None and abs(master[i] - prev_val) > 1:
+                master_ok = False
+            if next_val is not None and abs(next_val - master[i]) > 1:
+                master_ok = False
+            
+            slave_val = slave[i]
+            slave_next = slave[i+1] if i < n-1 else None
+
+            slave_ok = True
+            if prev_val is not None and abs(slave_val - prev_val) > 1:
+                slave_ok = False
+            if slave_next is not None and abs(slave_next - slave_val) > 1:
+                slave_ok = False
+            
+            if not master_ok and slave_ok:
+                corrected[i] = slave[i]
+            
+            if not master_ok and not slave_ok:
+                if prev_val >= 0:
+                    if abs(next_val - prev_val) <= 1:
+                        corrected[i] = max(prev_val, next_val)
+        return corrected
+
     def _read_data_from_single(self, h5_filename):
         with h5py.File(h5_filename, 'r') as f:
-            counter_data = f['counter'][:][:, 0]
+            counter_data = f['counter'][:][:, 0] # counter for master camera
+            counter_data_slave = f['counter'][:][:, 1] # counter for slave camera
             dout_states_data = f['dout_states'][:]
+
+        counter_data = self.correct_counter(counter_data, counter_data_slave)
 
         df = pd.DataFrame({
             'counter': counter_data,
@@ -252,8 +288,11 @@ class ExtractChannelInfo:
 
             # read dataset that needs to be extracted
             counter_data = h5_file[root_path+"/counter"][:, 0]
+            counter_data_slave = h5_file[root_path+"/counter"][:, 1]
             dout_states_data = h5_file[root_path+"/dout_states"][:]
             
+        counter_data = self.correct_counter(counter_data, counter_data_slave)
+
         df = pd.DataFrame({
             'counter': counter_data,
             'state': [tuple(row) for row in dout_states_data]
