@@ -13,9 +13,10 @@ from data_load.load_worm_data import load_worm_ID, load_worm_data
 from utils.interpolate import interpolate_over_nans
 from result_analysis.baseline_correction import apply_baseline_correction
 # %%
-def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', pre_segment=5, post_segment=30):
+def extract_neuron_groups(worm_data, date, vps_setting=1, boundary_method='preserve', pre_segment=5, post_segment=30, stim_name=None, stim_color=None):
     """
-    cut off worm data into neuron groups based on biological_ID and segments.
+    Extract neuron groups from worm data.
+    
     Parameters:
     - worm_data: dict
         A dictionary where each key is a worm name and each value is a dictionary containing:
@@ -24,18 +25,35 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', 
             - 'stimulus_intervals': list of tuples (start, end) indicating stimulus periods
             - 'buffer_intervals': list of tuples (not used in this function)
             - 'delta_F_over_F': DataFrame of delta_F_over_F values
+    - date: str
+        Date string to be added to each segment.
     - vps_setting: vps when taking photos
     - boundary_method: str, method for boundary preservation in downsampling
         - 'preserve': preserve boundary points exactly
         - 'weighted': weighted averaging with emphasis on boundaries
         - 'adaptive': adaptive method based on signal characteristics
         - 'original': original averaging method
+    - pre_segment: int, time points before stimulus onset
+    - post_segment: int, time points after stimulus offset
+    - stim_name: dict, optional
+        A dictionary mapping stimulus codes (e.g., 'c1_1') to descriptive names (e.g., 'Benzaldehyde High').
+    - stim_color: dict, optional
+        A dictionary mapping stimulus codes (e.g., 'c1_1') to hex color strings (e.g., '#FF5733').
+        
     Returns:
     - neuron_segments_dict: dict
-        Dictionary containing segments data for each neuron group and worm
+        Dictionary with structure {neuron_group: {stimulus_type: [segment_data_list]}}
+        Each segment_data_list contains dictionaries with keys:
+            - worm_key, segment_index, stimulus_type, stim_name, stim_color,
+            - deltaFoverF_0, start_time, end_time, scaled_data, date
     - neuron_groups: dict
         Dictionary of neuron groups categorized by group keys
     """
+    if stim_name is None:
+        stim_name = {}
+    if stim_color is None:
+        stim_color = {}
+        
     # 1. Parse data to build neuron_groups
     neuron_groups = {}
     for worm_key, data in worm_data.items():
@@ -50,16 +68,17 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', 
 
     # 2. Prepare data structures
     worm_keys = sorted(worm_data.keys())
-    num_worms = len(worm_keys)
 
     neuron_segments_dict = {}
     neuron_group_keys = sorted(neuron_groups.keys())
-    # sorted_worm_list = sorted(worm_list, key=lambda x: int(x[1:]))
 
-    # 3. Process each neuron group
+    # 3. Process each neuron group and directly build reorganized structure
     for group_key in neuron_group_keys:
-        worm_segments = {}
         group_neurons = neuron_groups[group_key]
+        
+        # Initialize the stimulus dictionary for this neuron group
+        if group_key not in neuron_segments_dict:
+            neuron_segments_dict[group_key] = {}
 
         for idx, worm_key in enumerate(worm_keys):
             data = worm_data[worm_key]
@@ -68,7 +87,6 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', 
             delta_F_over_F, t_inter = interpolate_over_nans(delta_F_over_F)
             stimulus_intervals = data["stimulus_intervals"]
             worm_stimuli = data["stimulus_list"]
-            # worm_stimuli = stimulus_lists.get(worm_key, [])
 
             group_neurons_in_worm = group_neurons.intersection(biological_ID)
             if not group_neurons_in_worm:
@@ -79,8 +97,7 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', 
             delta_F_trace = delta_F_over_F.iloc[neuron_index].values
 
             # cut stimulus intervals into fixed length segments
-            segments_data = []
-            for idx, (start_time, end_time) in enumerate(stimulus_intervals):
+            for seg_idx, (start_time, end_time) in enumerate(stimulus_intervals):
                 start_idx = max(0, start_time - pre_segment*vps_setting)# included
                 end_idx = min(len(delta_F_trace), end_time + post_segment*vps_setting)# not included
 
@@ -104,46 +121,31 @@ def extract_neuron_groups(worm_data, vps_setting=1, boundary_method='preserve', 
                     seg_data = np.concatenate((pre_stimulus, stimulus, post_stimulus))
                     relative_start_time = len(pre_stimulus)
                     relative_end_time = len(pre_stimulus) + len(stimulus)
+
+                stimulus_type = worm_stimuli[seg_idx]
                 
-                # Smooth the concatenated segment
-                # seg_data_smooth = gaussian_filter1d(seg_data, sigma=1)
+                # Ensure stimulus_type key exists in the reorganized dict
+                if stimulus_type not in neuron_segments_dict[group_key]:
+                    neuron_segments_dict[group_key][stimulus_type] = []
 
-                stimulus_type = worm_stimuli[idx]
-
-                segments_data.append(
+                # Directly append to the reorganized structure with stim_name and stim_color
+                neuron_segments_dict[group_key][stimulus_type].append(
                     {
+                        "worm_key": worm_key,
+                        "segment_index": seg_idx,
                         "stimulus_type": stimulus_type,
+                        "stim_name": stim_name.get(stimulus_type, stimulus_type),
+                        "stim_color": stim_color.get(stimulus_type, "#808080"),
                         "deltaFoverF_0": seg_data,
                         "start_time": relative_start_time,  # relative start time after separated downsampling
                         "end_time": relative_end_time,      # relative end time after separated downsampling
+                        "scaled_data": None,  # Placeholder for max_abs_scale_neuron_segments_group_worm
+                        "date": date,
                     }
                 )
-            if not segments_data:
-                continue
-
-            worm_segments[worm_key] = segments_data
-
-        if not worm_segments:
-            continue
-
-        # use a dict to store detailed segments
-        detailed_segments = {}
-        for worm_key, segments in worm_segments.items():
-            detailed_segments[worm_key] = []
-            for seg_idx, segment in enumerate(segments):
-                detailed_segments[worm_key].append(
-                    {
-                        "segment_index": seg_idx,
-                        "stimulus_type": segment["stimulus_type"],
-                        "deltaFoverF_0": segment["deltaFoverF_0"],
-                        "start_time": segment["start_time"],
-                        "end_time": segment["end_time"],
-                    }
-                )
-
-        neuron_segments_dict[group_key] = detailed_segments
 
     return neuron_segments_dict, neuron_groups
+
 
 
 def downsampling_with_boundary_preservation(segment_data, vps_setting=5, boundary_method='preserve'):
@@ -330,41 +332,8 @@ def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_s
 
 
 
-def reorganize_neuron_segments(neuron_segments_dict, date):
-    """
-    exchange the places of the neuron group key and stimulus type
-    """
-    reorganized_dict = {}
-
-    for group_key, worm_segments in neuron_segments_dict.items():
-        if group_key not in reorganized_dict:
-            reorganized_dict[group_key] = {}
-
-        # 遍历每个worm的segments
-        for worm_key, segments in worm_segments.items():
-            for segment in segments:
-                stimulus_type = segment["stimulus_type"]
-
-                # 确保stimulus_type在目标字典中存在
-                if stimulus_type not in reorganized_dict[group_key]:
-                    reorganized_dict[group_key][stimulus_type] = []
-
-                # 将worm_key和date加入到每个segment中
-                reorganized_dict[group_key][stimulus_type].append(
-                    {
-                        "worm_key": worm_key,  # 保存worm_key
-                        "segment_index": segment["segment_index"],
-                        "deltaFoverF_0": segment["deltaFoverF_0"],
-                        "start_time": segment["start_time"],
-                        "end_time": segment["end_time"],
-                        "scaled_data": segment.get(
-                            "scaled_data", None
-                        ),  # max_abs_scale_neuron_segments_group_worm
-                        "date": date,  # 添加日期字段
-                    }
-                )
-
-    return reorganized_dict
+# Note: reorganize_neuron_segments has been removed.
+# The logic is now integrated into extract_neuron_groups which directly outputs the reorganized structure.
 
 
 def drop_wrong_trials(neuron_segments_dict_reorganized, neuron, stimulus, wrong_trials_list):
@@ -433,12 +402,10 @@ def merge_multiple_dicts(*dicts):
     return merged_dict
 
 
-
-
-
 def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_method='preserve', **kwargs):
     """
-    Process worm data to extract neuron segments and perform z-score normalization.
+    Process worm data to extract neuron segments.
+    
     Parameters:
     - worm_data: dict
         A dictionary where each key is a worm name and each value is a dictionary containing:
@@ -447,43 +414,61 @@ def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_met
             - 'stimulus_intervals': list of tuples (start, end) indicating stimulus periods
             - 'buffer_intervals': list of tuples (not used in this function)
             - 'delta_F_over_F': DataFrame of delta_F_over_F values
-    - group_size: int, a group contains different stimulus segments
+    - date: str, experiment date
+    - vps_setting: int, frames per second setting for downsampling
     - boundary_method: str, method for boundary preservation in downsampling
+    - **kwargs: optional arguments
+        - pre_segment: int, time points before stimulus onset (default 5)
+        - post_segment: int, time points after stimulus offset (default 30)
+        - stim_name: dict, maps stimulus codes to descriptive names
+        - stim_color: dict, maps stimulus codes to hex color strings
+    
+    Returns:
+    - neuron_segments_dict: dict, directly in reorganized format {neuron: {stimulus: [segments]}}
+    - neuron_groups: dict, neuron groups categorized by group keys
     """
-    # 1. Extract neuron groups and segments
-    neuron_segments_dict, neuron_groups = extract_neuron_groups(worm_data, vps_setting, boundary_method, pre_segment=kwargs.get('pre_segment',5), post_segment=kwargs.get('post_segment',30))
-
-    # 2. Process neuron segments
-
-
-    # 3. Reorganize neuron segments
-    neuron_segments_dict_reorganized = reorganize_neuron_segments(
-        neuron_segments_dict, date=date
+    # Extract neuron groups and segments (now directly in reorganized format)
+    neuron_segments_dict, neuron_groups = extract_neuron_groups(
+        worm_data,
+        date=date,
+        vps_setting=vps_setting,
+        boundary_method=boundary_method,
+        pre_segment=kwargs.get('pre_segment', 5),
+        post_segment=kwargs.get('post_segment', 30),
+        stim_name=kwargs.get('stim_name'),
+        stim_color=kwargs.get('stim_color')
     )
 
-    return neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized
+    return neuron_segments_dict, neuron_groups
 
 def transfer_dict2dataframe(neuron_segments_dict):
     """
-    convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
+    Convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
+    
+    Returns:
+    - df: DataFrame with columns:
+        - neuron, stimulus, time_point, delta_F_over_F0,
+        - worm_key, segment_index, date, stim_name, stim_color
     """ 
     data_list = []
     for neuron_name, stimuli_data in neuron_segments_dict.items():
         for stimulus_type, segments in stimuli_data.items():
-                for segment in segments:
-                    delta_F_over_F0 = np.array(segment['deltaFoverF_0'])
-                    time_points = len(delta_F_over_F0)
+            for segment in segments:
+                delta_F_over_F0 = np.array(segment['deltaFoverF_0'])
+                time_points = len(delta_F_over_F0)
 
-                    for t, dff in zip(range(time_points), delta_F_over_F0):
-                        data_list.append({
-                            'neuron': neuron_name,
-                            'stimulus': stimulus_type,
-                            'time_point': t,
-                            'delta_F_over_F0': dff,
-                            'worm_key': segment.get('worm_key', 'unknown'),
-                            'segment_index': segment.get('segment_index', 'unknown'),
-                            'date': segment.get('date', 'unknown')
-                        })
+                for t, dff in zip(range(time_points), delta_F_over_F0):
+                    data_list.append({
+                        'neuron': neuron_name,
+                        'stimulus': stimulus_type,
+                        'time_point': t,
+                        'delta_F_over_F0': dff,
+                        'worm_key': segment.get('worm_key', 'unknown'),
+                        'segment_index': segment.get('segment_index', 'unknown'),
+                        'date': segment.get('date', 'unknown'),
+                        'stim_name': segment.get('stim_name', stimulus_type),
+                        'stim_color': segment.get('stim_color', '#808080')
+                    })
 
     df = pd.DataFrame(data_list)
     return df
@@ -547,15 +532,15 @@ def load_and_process_worm_data(
                                baseline_post=baseline_post,
                                background_noise=background_noise)
 
-    # process and segment
-    neuron_segments_dict, neuron_groups, neuron_segments_dict_reorganized = extract_and_normalize_worm_data(worm_data=worm_data,
-                                                                                                            date=date,
-                                                                                                            vps_setting=vps_setting,
-                                                                                                            boundary_method=boundary_method,
-                                                                                                            **kwargs
-                                                                                                            )
+    # process and segment (neuron_segments_dict is now directly in reorganized format)
+    neuron_segments_dict, neuron_groups = extract_and_normalize_worm_data(worm_data=worm_data,
+                                                                           date=date,
+                                                                           vps_setting=vps_setting,
+                                                                           boundary_method=boundary_method,
+                                                                           **kwargs
+                                                                           )
 
-    neuron_segments_dict_corrected = apply_baseline_correction(neuron_segments_dict_reorganized, correction_window=kwargs.get('correction_window', 5))
+    neuron_segments_dict_corrected = apply_baseline_correction(neuron_segments_dict, correction_window=kwargs.get('correction_window', 5))
 
     neuron_segments_df = transfer_dict2dataframe(neuron_segments_dict_corrected)
     # return a dict
@@ -564,8 +549,8 @@ def load_and_process_worm_data(
         "stimulus_lists": stimulus_lists,
         "ID_info": ID_info,
         "worm_data": worm_data,
-        "neuron_segments_dict": neuron_segments_dict,
-        "neuron_segments_dict_reorganized": neuron_segments_dict_reorganized,
+        "neuron_segments_dict": neuron_segments_dict,  # Now directly in reorganized format
+        "neuron_segments_dict_reorganized": neuron_segments_dict,  # Alias for backward compatibility
         "neuron_segments_dict_corrected": neuron_segments_dict_corrected,
         "neuron_groups": neuron_groups,
         "neuron_segments_df": neuron_segments_df
