@@ -2,6 +2,7 @@
 Generate video from TIFF files with stimulus state labels
 """
 import os
+import json
 import numpy as np
 import cv2
 from pathlib import Path
@@ -45,7 +46,7 @@ def normalize_uint16_to_uint8(img, contrast_limits=(100, 255)):
     return img
 
 
-def get_state_at_frame(frame_idx, stimulus_df):
+def get_state_at_frame(frame_idx, stimulus_df, stimulus_mapping=None):
     """
     Get the stimulus state for a given frame index
     
@@ -55,6 +56,8 @@ def get_state_at_frame(frame_idx, stimulus_df):
         Current frame index (0-based)
     stimulus_df : pd.DataFrame
         DataFrame with columns 'start', 'end', 'state'
+    stimulus_mapping : dict, optional
+        Dictionary mapping state codes to names
     
     Returns:
     --------
@@ -63,7 +66,10 @@ def get_state_at_frame(frame_idx, stimulus_df):
     """
     for _, row in stimulus_df.iterrows():
         if row['start'] <= frame_idx < row['end']:
-            return str(row['state'])
+            state = str(row['state'])
+            if stimulus_mapping and state in stimulus_mapping:
+                return stimulus_mapping[state]
+            return state
     return 'Unknown'
 
 
@@ -168,6 +174,8 @@ def tiff_to_video(
     frame_pattern='*.tif',
     start_frame=None,
     end_frame=None,
+    roi=None,
+    stimulus_mapping_file=None,
 ):
     """
     Generate video from TIFF files with stimulus state labels
@@ -203,6 +211,8 @@ def tiff_to_video(
         Starting frame index (0-based)
     end_frame : int, optional
         Ending frame index (exclusive)
+    roi : tuple, optional
+        Region of interest (x_min, x_max, y_min, y_max) to crop
     
     Returns:
     --------
@@ -244,11 +254,25 @@ def tiff_to_video(
         tiff_files = tiff_files[start_frame:]
     if end_frame is not None:
         tiff_files = tiff_files[:end_frame - (start_frame or 0)]
-    
     print(f"Processing {len(tiff_files)} frames")
     
+    # Load stimulus mapping if provided
+    stimulus_mapping = None
+    if stimulus_mapping_file:
+        if os.path.exists(stimulus_mapping_file):
+            with open(stimulus_mapping_file, 'r', encoding='utf-8') as f:
+                stimulus_mapping = json.load(f)
+        else:
+            print(f"Warning: Stimulus mapping file not found: {stimulus_mapping_file}")
+
     # Read first image to get dimensions
     first_img = tifffile.imread(str(tiff_files[0]))
+    
+    # Apply ROI if specified
+    if roi is not None:
+        x_min, x_max, y_min, y_max = roi
+        first_img = first_img[y_min:y_max, x_min:x_max]
+
     if first_img.dtype != np.uint16:
         print(f"Warning: Image dtype is {first_img.dtype}, expected uint16")
     
@@ -277,12 +301,17 @@ def tiff_to_video(
         # Read TIFF file
         img = tifffile.imread(str(tiff_file))
         
+        # Apply ROI
+        if roi is not None:
+            x_min, x_max, y_min, y_max = roi
+            img = img[y_min:y_max, x_min:x_max]
+        
         # Normalize to uint8
         img_normalized = normalize_uint16_to_uint8(img, contrast_limits)
         
         # Get current state
         current_frame_idx = frame_offset + idx
-        state = get_state_at_frame(current_frame_idx, df)
+        state = get_state_at_frame(current_frame_idx, df, stimulus_mapping)
         
         # Add text label
         img_with_text = add_text_to_frame(
@@ -310,6 +339,7 @@ if __name__ == "__main__":
     parent_folder = r"I:\WJH\raw\20251105_bac\w5\MIP_Camera-Green_VSC-09321"
     output_video = r"I:\WJH\raw\20251105_bac\w5\output_video.avi"
     excel_path = r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac\output_volumes.xlsx"
+    stimulus_json_path = r"h:\Process_temporary\WJH\sensory_pipeline_python\data\config\stimulus.json"
     
     # Get stimulus info
     stimulus_info = get_stimulus_info(excel_path)
@@ -325,4 +355,5 @@ if __name__ == "__main__":
         codec='MJPG', # can use MJPG for avi to load in ImageJ
         text_position='top_right',
         font_scale=1.0,
+        stimulus_mapping_file=stimulus_json_path,
     )
