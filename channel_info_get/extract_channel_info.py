@@ -187,7 +187,7 @@ class ExtractChannelInfo:
 
     def generate_volume_df(self, states, start_counters, end_counters, max_frame_number=None):
         if max_frame_number is not None and len(end_counters) > 0:
-            end_counters[-1] = max_frame_number
+            end_counters[-1] = max_frame_number + start_counters[0]
 
         if states[0] == 'All Off':
             adjust_frame = end_counters[0]
