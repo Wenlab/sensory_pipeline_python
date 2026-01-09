@@ -113,7 +113,7 @@ def extract_neuron_groups(worm_data, date, vps_setting=1, boundary_method='prese
 
                 # downsample the segment using separated sampling method
                 if vps_setting > 1:
-                    seg_data, relative_start_time, relative_end_time = downsampling_separated_enhanced(
+                    seg_data, relative_start_time, relative_end_time = downsampling_separated(
                         pre_stimulus, stimulus, post_stimulus, vps_setting, boundary_method
                     )
                 else:
@@ -291,7 +291,7 @@ def downsampling_with_boundary_preservation(segment_data, vps_setting=5, boundar
         raise ValueError(f"Unknown boundary_method: {boundary_method}")
 
 
-def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_setting=5, boundary_method='preserve'):
+def downsampling_separated(pre_stimulus, stimulus, post_stimulus, vps_setting=5, boundary_method='preserve'):
     """
     Enhanced separate downsampling with configurable boundary preservation.
     
@@ -305,7 +305,7 @@ def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_s
     - relative_start_time: start time of stimulus in downsampled signal
     - relative_end_time: end time of stimulus in downsampled signal
     """
-    # Apply enhanced downsampling to each segment
+    # Apply downsampling to each segment
     pre_downsampled = downsampling_with_boundary_preservation(
         pre_stimulus, vps_setting, boundary_method
     ) if len(pre_stimulus) > 0 else np.array([])
@@ -330,76 +330,121 @@ def downsampling_separated_enhanced(pre_stimulus, stimulus, post_stimulus, vps_s
     return seg_data_downsampled, pre_length, pre_length + stimulus_length - 1
 
 
-
-
-# Note: reorganize_neuron_segments has been removed.
-# The logic is now integrated into extract_neuron_groups which directly outputs the reorganized structure.
-
-
-def drop_wrong_trials(neuron_segments_dict_reorganized, neuron, stimulus, wrong_trials_list):
+def drop_wrong_trials(data, neuron, stimulus, wrong_trials_list):
     """
-    Drop trials specified in wrong_trials_list from neuron_segments_dict_reorganized for a specific neuron and stimulus.
+    Drop trials specified in wrong_trials_list for a specific neuron and stimulus.
     
     Parameters:
-    - neuron_segments_dict_reorganized: dict
-        The dictionary returned by reorganize_neuron_segments.
-    - neuron: str
-        The neuron group key (e.g., 'AWC_ON').
-    - stimulus: str
-        The stimulus type (e.g., 'benzaldehyde_high').
+    - data: dict or pd.DataFrame
+        dict: nested structure {neuron: {stimulus: [segments]}}
+        DataFrame: columns including 'neuron', 'stimulus', 'worm_key', 'segment_index', 'date'
+    - neuron: str, The neuron name
+    - stimulus: str, The stimulus symbol
     - wrong_trials_list: list of str
         List of unique identifiers for trials to drop. 
         Format: "{worm_key}_{segment_index}_{date}"
     
     Returns:
-    - neuron_segments_dict_reorganized: dict
-        The dictionary with specified trials removed.
+    - data: dict or pd.DataFrame (same type as input) with specified trials removed.
     """
-    if neuron not in neuron_segments_dict_reorganized:
-        print(f"Warning: Neuron group '{neuron}' not found.")
-        return neuron_segments_dict_reorganized
-        
-    if stimulus not in neuron_segments_dict_reorganized[neuron]:
-        print(f"Warning: Stimulus '{stimulus}' not found in neuron group '{neuron}'.")
-        return neuron_segments_dict_reorganized
-
     wrong_trials_set = set(wrong_trials_list)
-    
-    # Filter the specific list of segments
-    original_segments = neuron_segments_dict_reorganized[neuron][stimulus]
-    cleaned_segments = []
-    
-    for segment in original_segments:
-        # Construct unique ID
-        trial_id = f"{segment['worm_key']}_{segment['segment_index']}_{segment['date']}"
-        
-        if trial_id not in wrong_trials_set:
-            cleaned_segments.append(segment)
+
+    if isinstance(data, dict):
+        if neuron not in data:
+            print(f"Warning: Neuron group '{neuron}' not found.")
+            return data
             
-    neuron_segments_dict_reorganized[neuron][stimulus] = cleaned_segments
+        if stimulus not in data[neuron]:
+            print(f"Warning: Stimulus '{stimulus}' not found in neuron group '{neuron}'.")
+            return data
+        
+        # Filter the specific list of segments
+        original_segments = data[neuron][stimulus]
+        cleaned_segments = []
+        
+        for segment in original_segments:
+            # Construct unique ID
+            trial_id = f"{segment['worm_key']}_{segment['segment_index']}_{segment['date']}"
+            
+            if trial_id not in wrong_trials_set:
+                cleaned_segments.append(segment)
                 
-    return neuron_segments_dict_reorganized
+        data[neuron][stimulus] = cleaned_segments
+        return data
 
+    elif isinstance(data, pd.DataFrame):
+        check_cols = ['neuron', 'stimulus', 'worm_key', 'segment_index', 'date']
+        missing = [c for c in check_cols if c not in data.columns]
+        if missing:
+             print(f"Warning: DataFrame missing columns {missing}. Cannot drop trials.")
+             return data
 
-# merge different date's neuron segments
-def merge_multiple_dicts(*dicts):
+        # Find rows corresponding to this neuron/stimulus context
+        mask_context = (data['neuron'] == neuron) & (data['stimulus'] == stimulus)
+        
+        if not mask_context.any():
+            print(f"Warning: No data for neuron={neuron}, stimulus={stimulus} in DataFrame.")
+            return data
+
+        # Construct IDs for these rows to check against wrong_trials_set
+        subset = data.loc[mask_context]
+        current_ids = (
+            subset['worm_key'].astype(str) + "_" + 
+            subset['segment_index'].astype(str) + "_" + 
+            subset['date'].astype(str)
+        )
+        
+        # Identify indices to drop
+        ids_to_drop = current_ids[current_ids.isin(wrong_trials_set)]
+        
+        if not ids_to_drop.empty:
+            # Drop them from the original DataFrame
+            data = data.drop(ids_to_drop.index)
+        
+        return data
+
+    else:
+        raise TypeError("Input data must be a dict or pandas.DataFrame")
+
+def merge_segments(*args):
     """
-    merge multiple dictionaries into one
+    Merge different nested dictionaries or dataframes.
+    Supports inputting multiple dicts OR multiple DataFrames.
+    If multiple DataFrames are provided, they are concatenated.
+    If multiple dicts are provided, they are merged recursively.
     """
-    merged_dict = {}
-
-    for d in dicts:
-        for group_key, stimulus_data in d.items():
-            if group_key not in merged_dict:
-                merged_dict[group_key] = stimulus_data
-            else:
-                for stimulus_type, segments in stimulus_data.items():
-                    if stimulus_type not in merged_dict[group_key]:
-                        merged_dict[group_key][stimulus_type] = segments
-                    else:
-                        merged_dict[group_key][stimulus_type].extend(segments)
-
-    return merged_dict
+    if not args:
+        return {}
+    
+    first_arg = args[0]
+    
+    if isinstance(first_arg, pd.DataFrame):
+        for i, arg in enumerate(args):
+            if not isinstance(arg, pd.DataFrame):
+                raise TypeError(f"Argument at index {i} is not a DataFrame, but the first argument is.")
+        
+        # Merge DataFrames
+        return pd.concat(args, ignore_index=True)
+    
+    elif isinstance(first_arg, dict):
+        merged_dict = {}
+        for d in args:
+            if not isinstance(d, dict):
+                 raise TypeError("Cannot merge dict with non-dict types.")
+            
+            for group_key, stimulus_data in d.items():
+                if group_key not in merged_dict:
+                    merged_dict[group_key] = {k: v[:] for k, v in stimulus_data.items()}
+                else:
+                    for stimulus_type, segments in stimulus_data.items():
+                        if stimulus_type not in merged_dict[group_key]:
+                            merged_dict[group_key][stimulus_type] = segments[:]
+                        else:
+                            merged_dict[group_key][stimulus_type].extend(segments)
+        return merged_dict
+    
+    else:
+        raise TypeError("Inputs must be dicts or DataFrames.")
 
 
 def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_method='preserve', **kwargs):
@@ -443,7 +488,7 @@ def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_met
 
 def transfer_dict2dataframe(neuron_segments_dict):
     """
-    Convert a nested dictionary into a pandas DataFrame for easier group and statistics calculate.
+    Convert a nested dictionary into a pandas DataFrame.
     
     Returns:
     - df: DataFrame with columns:
@@ -466,12 +511,64 @@ def transfer_dict2dataframe(neuron_segments_dict):
                         'worm_key': segment.get('worm_key', 'unknown'),
                         'segment_index': segment.get('segment_index', 'unknown'),
                         'date': segment.get('date', 'unknown'),
+                        'start_time': segment.get('start_time', 'unknown'),
                         'stim_name': segment.get('stim_name', stimulus_type),
                         'stim_color': segment.get('stim_color', '#808080')
                     })
 
     df = pd.DataFrame(data_list)
     return df
+
+def transfer_dataframe2dict(df: pd.DataFrame) -> dict:
+    """
+    Convert a pandas DataFrame back into a nested dictionary format(neuron_segments_dict).
+    
+    Parameters:
+    - df: DataFrame with columns:
+        - neuron, stimulus, time_point, delta_F_over_F0,
+        - worm_key, segment_index, date, stim_name, stim_color
+
+    Returns:
+    - neuron_segments_dict: dict with structure {neuron: {stimulus: [segments]}}
+    """
+    neuron_segments_dict = {}
+    required_cols = ['neuron', 'stimulus', 'time_point', 'delta_F_over_F0', 'worm_key', 'segment_index', 'date']
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"DataFrame is missing required columns: {missing}")
+    df_use = df.sort_values(['neuron', 'stimulus', 'worm_key', 'segment_index', 'date', 'time_point'])
+
+    grouped = df_use.groupby(['neuron', 'stimulus', 'worm_key', 'segment_index', 'date'], sort=False)
+
+    for (neuron, stimulus, worm_key, segment_index, date), g in grouped:
+        # get info from the first row
+        first_row = g.iloc[0]
+        stim_name = first_row.get('stim_name', stimulus)
+        stim_color = first_row.get('stim_color', '#808080')
+
+        start_time = first_row.get('start_time', None)
+        end_time = first_row.get('end_time', None)
+
+        segment_dict = {
+            "worm_key": worm_key,
+            "segment_index": segment_index,
+            "stimulus_type": stimulus,
+            "stim_name": stim_name,
+            "stim_color": stim_color,
+            "deltaFoverF_0": g['delta_F_over_F0'].values,  # numpy array of the trace
+            "start_time": start_time,
+            "end_time": end_time,
+            "scaled_data": None,
+            "date": date,
+        }
+
+        if neuron not in neuron_segments_dict:
+            neuron_segments_dict[neuron] = {}
+        if stimulus not in neuron_segments_dict[neuron]:
+            neuron_segments_dict[neuron][stimulus] = []
+        neuron_segments_dict[neuron][stimulus].append(segment_dict)
+    
+    return neuron_segments_dict
 
 def load_and_process_worm_data(
     h5_file_path,
