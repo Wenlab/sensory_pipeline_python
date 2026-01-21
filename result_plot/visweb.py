@@ -201,7 +201,8 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                     id='combine-options',
                     options=[
                         {'label': 'Combine compounds (different dilutions)', 'value': 'combine_compounds'},
-                        {'label': 'Combine neurons (L/R)', 'value': 'combine_neurons'}
+                        {'label': 'Combine neurons (L/R)', 'value': 'combine_neurons'},
+                        {'label': 'Show date difference', 'value': 'show_date_difference'}
                     ],
                     value=[],
                     labelStyle={'display': 'block', 'marginBottom': '5px'}
@@ -240,7 +241,22 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
         
         combine_compounds = 'combine_compounds' in combine_options
         combine_neurons = 'combine_neurons' in combine_options
+        show_date_difference = 'show_date_difference' in combine_options
         processed_neuron_dict = neuron_segments_dict
+        
+        # Get unique dates and define dash styles for date differentiation
+        all_dates = set()
+        if show_date_difference:
+            for neuron in neuron_segments_dict:
+                for stim in neuron_segments_dict[neuron]:
+                    for seg in neuron_segments_dict[neuron][stim]:
+                        if 'date' in seg:
+                            all_dates.add(seg['date'])
+        all_dates = sorted(list(all_dates))
+        
+        # Define dash styles for different dates
+        dash_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
+        date_dash_map = {date: dash_styles[i % len(dash_styles)] for i, date in enumerate(all_dates)}
         if combine_neurons:
             processed_neuron_dict = combine_lr_neurons(neuron_segments_dict)
             neuron_mapping = create_neuron_mapping(neuron_segments_dict)
@@ -463,52 +479,112 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                         )
                 else:
                     # Calculate and plot mean ± SEM
-                    all_data_raw = [seg['deltaFoverF_0'] for seg in all_segments]
-                    if not all_data_raw:
-                        continue
-                    # Make sure all arrays have the same length
-                    min_len = min(len(data) for data in all_data_raw)
-                    # Truncate all arrays to the same length
-                    all_data_truncated = [data[:min_len] for data in all_data_raw]
-                    all_data = np.array(all_data_truncated)
-                    # start_time = all_segments[0].get('start_time', 6)
-
-                    mean_data = np.mean(all_data, axis=0)
-                    sem_data = stats.sem(all_data, axis=0)
-                    x_values = np.arange(min_len) - start_time
-                    # Create hover text
-                    hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
-                    # Plot mean line
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_values,
-                            y=mean_data,
-                            mode='lines',
-                            line=dict(color=highlight_color, width=2),
-                            showlegend=False,
-                            hovertemplate=(
-                                    f"{hover_text}<br>"
-                                    f"x: %{{x}}<br>"
-                                    f"y: %{{y:.3f}}<br>"
-                                    f"N: {len(all_segments)}"
+                    if show_date_difference and all_dates:
+                        # Group segments by date and plot separately
+                        segments_by_date = {}
+                        for seg in all_segments:
+                            date = seg.get('date', 'unknown')
+                            if date not in segments_by_date:
+                                segments_by_date[date] = []
+                            segments_by_date[date].append(seg)
+                        
+                        for date in all_dates:
+                            if date not in segments_by_date:
+                                continue
+                            date_segments = segments_by_date[date]
+                            all_data_raw = [seg['deltaFoverF_0'] for seg in date_segments]
+                            if not all_data_raw:
+                                continue
+                            min_len = min(len(data) for data in all_data_raw)
+                            all_data_truncated = [data[:min_len] for data in all_data_raw]
+                            all_data = np.array(all_data_truncated)
+                            
+                            mean_data = np.mean(all_data, axis=0)
+                            sem_data = stats.sem(all_data, axis=0)
+                            x_values = np.arange(min_len) - start_time
+                            
+                            dash_style = date_dash_map.get(date, 'solid')
+                            hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)} ({date})"
+                            
+                            # Plot mean line with date-specific dash style
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=x_values,
+                                    y=mean_data,
+                                    mode='lines',
+                                    line=dict(color=highlight_color, width=2, dash=dash_style),
+                                    showlegend=False,
+                                    hovertemplate=(
+                                        f"{hover_text}<br>"
+                                        f"x: %{{x}}<br>"
+                                        f"y: %{{y:.3f}}<br>"
+                                        f"N: {len(date_segments)}"
+                                    ),
                                 ),
-                        ),
-                        row=row_idx, col=col_idx
-                    )
-                    
-                    # Plot SEM band
-                    fig.add_trace(
-                        go.Scatter(
-                            x=np.concatenate([x_values, x_values[::-1]]),
-                            y=np.concatenate([mean_data + sem_data, (mean_data - sem_data)[::-1]]),
-                            fill='toself',
-                            fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.3,)}',
-                            line=dict(color='rgba(255,255,255,0)'),
-                            showlegend=False,
-                            hoverinfo='none'
-                        ),
-                        row=row_idx, col=col_idx
-                    )
+                                row=row_idx, col=col_idx
+                            )
+                            
+                            # Plot SEM band
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=np.concatenate([x_values, x_values[::-1]]),
+                                    y=np.concatenate([mean_data + sem_data, (mean_data - sem_data)[::-1]]),
+                                    fill='toself',
+                                    fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.15,)}',
+                                    line=dict(color='rgba(255,255,255,0)'),
+                                    showlegend=False,
+                                    hoverinfo='none'
+                                ),
+                                row=row_idx, col=col_idx
+                            )
+                    else:
+                        # Original behavior: aggregate all dates together
+                        all_data_raw = [seg['deltaFoverF_0'] for seg in all_segments]
+                        if not all_data_raw:
+                            continue
+                        # Make sure all arrays have the same length
+                        min_len = min(len(data) for data in all_data_raw)
+                        # Truncate all arrays to the same length
+                        all_data_truncated = [data[:min_len] for data in all_data_raw]
+                        all_data = np.array(all_data_truncated)
+                        # start_time = all_segments[0].get('start_time', 6)
+
+                        mean_data = np.mean(all_data, axis=0)
+                        sem_data = stats.sem(all_data, axis=0)
+                        x_values = np.arange(min_len) - start_time
+                        # Create hover text
+                        hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)}"
+                        # Plot mean line
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_values,
+                                y=mean_data,
+                                mode='lines',
+                                line=dict(color=highlight_color, width=2),
+                                showlegend=False,
+                                hovertemplate=(
+                                        f"{hover_text}<br>"
+                                        f"x: %{{x}}<br>"
+                                        f"y: %{{y:.3f}}<br>"
+                                        f"N: {len(all_segments)}"
+                                    ),
+                            ),
+                            row=row_idx, col=col_idx
+                        )
+                        
+                        # Plot SEM band
+                        fig.add_trace(
+                            go.Scatter(
+                                x=np.concatenate([x_values, x_values[::-1]]),
+                                y=np.concatenate([mean_data + sem_data, (mean_data - sem_data)[::-1]]),
+                                fill='toself',
+                                fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.3,)}',
+                                line=dict(color='rgba(255,255,255,0)'),
+                                showlegend=False,
+                                hoverinfo='none'
+                            ),
+                            row=row_idx, col=col_idx
+                        )
                     
                 # Set neuron-specific y-range
                 fig.update_yaxes(
@@ -540,6 +616,21 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
         # Add legend traces to the figure (in first subplot)
         for trace in legend_traces:
             fig.add_trace(trace, row=1, col=1)
+        
+        # Add date legend traces if show_date_difference is enabled
+        if show_date_difference and all_dates:
+            for date in all_dates:
+                dash_style = date_dash_map.get(date, 'solid')
+                fig.add_trace(
+                    go.Scatter(
+                        x=[None], y=[None],
+                        mode='lines',
+                        line=dict(color='gray', width=2, dash=dash_style),
+                        name=f"Date: {date}",
+                        showlegend=True
+                    ),
+                    row=1, col=1
+                )
             
         # Update layout to maintain fixed heights
         fig.update_layout(
@@ -554,7 +645,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                 y=1.01,
                 xanchor="left",
                 x=0,
-                title="Stimulus",
+                title="Stimulus / Date",
                 bordercolor="White",
                 borderwidth=0.5
             )
