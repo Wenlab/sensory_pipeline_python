@@ -12,7 +12,6 @@ import os
 import sys
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.get_symmetric_neuron import get_symmetric_neuron
 from utils.parse_stimulus_info import group_and_sort_stimuli
 from data_load.get_stimulus_info import *
 
@@ -71,7 +70,15 @@ def relplot_mean_signal(neuron_segments_df,
         
         return g
 
-    
+def get_symmetric_neuron(neuron_name):
+    if isinstance(neuron_name, str):
+        if neuron_name.endswith('L'):
+            return neuron_name[:-1] + 'R'
+        elif neuron_name.endswith('R'):
+            return neuron_name[:-1] + 'L'
+        else:
+            return None
+
 def get_cluster_order(neuron_segments_df, all_neurons, cluster_stimulus=None):
     stimulus_neuron_counts = neuron_segments_df.groupby('stimulus')['neuron'].nunique()
     cluster_stimulus = cluster_stimulus if cluster_stimulus else stimulus_neuron_counts.idxmax()
@@ -167,6 +174,86 @@ def plot_covariance_matrix(cluster_matrix_full, neurons_in_cluster_order, cluste
     return covariance_matrix
 
 
+def combine_lr_neurons_df(neuron_segments_df):
+    """
+    Combine left and right neuron pairs in a DataFrame (e.g., ADLL and ADLR become ADL).
+    Only combines neurons that have both L and R versions.
+    Returns a new DataFrame with combined neurons.
+    """
+    df = neuron_segments_df.copy()
+    
+    # Find all unique neurons
+    all_neurons = df['neuron'].unique()
+    
+    # Identify L/R pairs
+    neuron_groups = {}
+    for neuron in all_neurons:
+        if neuron.endswith('L') or neuron.endswith('R'):
+            base_name = neuron[:-1]  # Remove the L or R suffix
+            if base_name not in neuron_groups:
+                neuron_groups[base_name] = []
+            neuron_groups[base_name].append(neuron)
+    
+    # Create mapping for neurons to combine
+    neuron_mapping = {}
+    for base_name, neurons in neuron_groups.items():
+        # Special handling for ASE - do not combine
+        if base_name == 'ASE':
+            continue
+        
+        if len(neurons) == 2:  # If we have both L and R versions
+            has_left = any(n.endswith('L') for n in neurons)
+            has_right = any(n.endswith('R') for n in neurons)
+            
+            if has_left and has_right:
+                for neuron in neurons:
+                    neuron_mapping[neuron] = base_name
+    
+    # Apply the mapping to the DataFrame
+    df['neuron'] = df['neuron'].apply(lambda x: neuron_mapping.get(x, x))
+    
+    return df
+
+
+def invert_color(hex_color, background='white'):
+    """Invert hex color when background is black for better contrast."""
+    if background == 'white':
+        return hex_color
+    if background != 'black':
+        return hex_color
+    hex_color = hex_color.lstrip('#')
+    rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    inverted_rgb = tuple(255 - c for c in rgb)
+    return '#{:02x}{:02x}{:02x}'.format(*inverted_rgb)
+
+
+def get_neuron_combine_mapping(neuron_list):
+    """
+    Create a mapping from L/R neurons to combined neurons using combine_lr_neurons_df logic.
+    """
+    neuron_mapping = {}
+    neuron_groups = {}
+    
+    for neuron in neuron_list:
+        if neuron.endswith('L') or neuron.endswith('R'):
+            base_name = neuron[:-1]
+            if base_name not in neuron_groups:
+                neuron_groups[base_name] = []
+            neuron_groups[base_name].append(neuron)
+    
+    for base_name, neurons in neuron_groups.items():
+        if base_name == 'ASE':
+            continue
+        if len(neurons) == 2:
+            has_left = any(n.endswith('L') for n in neurons)
+            has_right = any(n.endswith('R') for n in neurons)
+            if has_left and has_right:
+                for neuron in neurons:
+                    neuron_mapping[neuron] = base_name
+    
+    return neuron_mapping
+
+
 def draw_mean_signal_cluster(neuron_segments_df,
                              y_offset=1.5,
                              fig_width=12,
@@ -175,11 +262,31 @@ def draw_mean_signal_cluster(neuron_segments_df,
                              cluster_stimulus=None,
                              save_folder=None,
                              plot_covariance=True,
-                             custom_order=None
+                             custom_order=None,
+                             combine_neurons=False,
+                             background='white'
                              ):
     if neuron_segments_df.empty:
         print("neuron_segments_df is empty. Nothing to plot.")
         return None
+
+    # Validate background parameter
+    if background not in ['white', 'black']:
+        print("Invalid background parameter. Using 'white' as default.")
+        background = 'white'
+
+    # Combine L/R neuron pairs if requested (must be done before using custom_order)
+    if combine_neurons:
+        # Get mapping before combining
+        original_neurons = list(neuron_segments_df['neuron'].unique())
+        neuron_map = get_neuron_combine_mapping(original_neurons)
+        
+        # Apply mapping to custom_order if provided
+        if custom_order:
+            custom_order = [neuron_map.get(n, n) for n in custom_order]
+        
+        # Now combine the dataframe
+        neuron_segments_df = combine_lr_neurons_df(neuron_segments_df)
 
     all_neurons = sorted(neuron_segments_df['neuron'].unique())
     # Group and sort stimuli by concentration
@@ -198,15 +305,24 @@ def draw_mean_signal_cluster(neuron_segments_df,
         grouped_stimuli = [(s, [s]) for s in stimulus_types]  # Each stimulus as its own group
 
     if not custom_order:
-        neurons_in_cluster_order, cluster_matrix_full, cluster_stimulus = get_cluster_order(neuron_segments_df, all_neurons, cluster_stimulus)
-        
-        covariance_matrix = None
-        if plot_covariance and save_folder:
-            covariance_matrix = plot_covariance_matrix(cluster_matrix_full, neurons_in_cluster_order, cluster_stimulus, save_folder)
+        # Only perform clustering if cluster_stimulus is explicitly provided or if we want automatic selection
+        if cluster_stimulus is None:
+            # No clustering, use natural neuron order
+            neurons_in_cluster_order = all_neurons
+            cluster_matrix_full = None
+            covariance_matrix = None
+        else:
+            # Perform clustering based on specified stimulus
+            neurons_in_cluster_order, cluster_matrix_full, cluster_stimulus = get_cluster_order(neuron_segments_df, all_neurons, cluster_stimulus)
+            
+            covariance_matrix = None
+            if plot_covariance and save_folder:
+                covariance_matrix = plot_covariance_matrix(cluster_matrix_full, neurons_in_cluster_order, cluster_stimulus, save_folder)
     else:
         neurons_in_cluster_order = custom_order
         cluster_matrix_full = None
         covariance_matrix = None
+        cluster_stimulus = None
         
     n_dim = len(neurons_in_cluster_order)
 
@@ -223,6 +339,9 @@ def draw_mean_signal_cluster(neuron_segments_df,
 
     fig, axes = plt.subplots(1, n_stimuli, figsize=(fig_width, total_height), sharey=True, squeeze=False)
     axes = axes.flatten()
+    
+    # Set figure background
+    fig.patch.set_facecolor(background)
     
     # Adjust layout to leave space for labels at bottom
     plt.subplots_adjust(wspace=0.05, bottom=bottom_fraction)
@@ -250,23 +369,21 @@ def draw_mean_signal_cluster(neuron_segments_df,
         ax.set_xticks([])
         ax.set_yticks([])
         
-        # Add stimulus lines
-        ax.axvline(x=5, color='#E6A61C', linestyle='--', linewidth=1.5, zorder=0)
-        ax.axvline(x=15, color='#76642E', linestyle='--', linewidth=1.5, zorder=0)
+        # Add stimulus lines with adjusted colors
+        onset_color = invert_color('#E6A61C', background)
+        offset_color = invert_color('#76642E', background)
+        ax.axvline(x=5, color=onset_color, linestyle='--', linewidth=1.5, zorder=0)
+        ax.axvline(x=15, color=offset_color, linestyle='--', linewidth=1.5, zorder=0)
         
         # Iterate neurons
         for i, neuron in enumerate(neurons_in_cluster_order):
-            # Calculate offset
             current_offset = i * y_offset
-            
-            # Z-order: lower neurons (smaller i) should be in front?
-            # If i=0 is bottom, and we want it to cover i=1 (above).
-            # So i=0 should be drawn LAST (highest zorder).
             z_order = n_neurons - i
 
             # Add baseline at y=0 relative to offset
+            baseline_color = invert_color('#000000', background)
             ax.plot([x_min, x_max], [current_offset, current_offset], 
-                    color='black', linestyle=':', linewidth=1, alpha=0.5, zorder=z_order+0.05)
+                    color=baseline_color, linestyle=':', linewidth=1, alpha=0.5, zorder=z_order+0.05)
 
             df_subset = neuron_segments_df[(neuron_segments_df['neuron']==neuron) & (neuron_segments_df['stimulus']==stimulus)]
             
@@ -290,24 +407,30 @@ def draw_mean_signal_cluster(neuron_segments_df,
                 y_upper = y_values + sem_trace.values
                 y_lower = y_values - sem_trace.values
                 
-                color = 'blue'
+                # Adjust colors based on background
+                if background == 'black':
+                    trace_color = 'cyan'
+                    fill_color = 'cyan'
+                    fill_alpha = 0.3
+                else:
+                    trace_color = 'blue'
+                    fill_color = 'gray'
+                    fill_alpha = 0.3
+
                 linestyle = '-'
                 if is_symmetric:
                     linestyle = '-.'
                 
                 # Fill
-                # White fill to block background
-                ax.fill_between(mean_trace.index, y_lower, y_upper, color='white', alpha=1.0, zorder=z_order)
-                # Color fill
-                ax.fill_between(mean_trace.index, y_lower, y_upper, color='gray', alpha=0.3, zorder=z_order+0.1)
-                # Line
-                ax.plot(mean_trace.index, y_values, color=color, linestyle=linestyle, zorder=z_order+0.2)
+                ax.fill_between(mean_trace.index, y_lower, y_upper, color=background, alpha=1.0, zorder=z_order)
+                ax.fill_between(mean_trace.index, y_lower, y_upper, color=fill_color, alpha=fill_alpha, zorder=z_order+0.1)
+                ax.plot(mean_trace.index, y_values, color=trace_color, linestyle=linestyle, zorder=z_order+0.2)
                 
             # Add neuron label on the first subplot (even if trace is missing)
             if j == 0:
-                # Label at the baseline of the trace (current_offset)
+                label_color = invert_color('#000000', background)
                 ax.text(x_min - (x_max-x_min)*0.05, current_offset, neuron, 
-                        ha='right', va='center', fontsize=10)
+                        ha='right', va='center', fontsize=10, color=label_color)
 
         # Add scale bar on the last subplot
         if j == n_stimuli - 1:
@@ -317,9 +440,10 @@ def draw_mean_signal_cluster(neuron_segments_df,
             bar_bottom = top_neuron_idx * y_offset + y_offset * 0.5
             bar_top = bar_bottom + scale_value
             
-            ax.plot([bar_x, bar_x], [bar_bottom, bar_top], color='black', linewidth=2)
+            scale_bar_color = invert_color('#000000', background)
+            ax.plot([bar_x, bar_x], [bar_bottom, bar_top], color=scale_bar_color, linewidth=2)
             ax.text(bar_x - (x_max - x_min) * 0.01, (bar_bottom + bar_top)/2, f'{scale_value} $\Delta F/F_0$', 
-                    ha='right', va='center', fontsize=8)
+                    ha='right', va='center', fontsize=8, color=scale_bar_color)
 
         ax.set_xlim(x_min, x_max)
         # Y-lim will be autoscaled or we can set it
@@ -329,6 +453,7 @@ def draw_mean_signal_cluster(neuron_segments_df,
     label_ax.set_xlim(0, 1)
     label_ax.set_ylim(0, 1)
     label_ax.axis('off')
+    label_ax.set_facecolor(background)
     # Add concentration labels for each stimulus column
     for j, stimulus in enumerate(stimulus_types):
         x_center = stimulus_x_centers[j]
@@ -347,12 +472,14 @@ def draw_mean_signal_cluster(neuron_segments_df,
         else:
             conc_part = stimulus
             
+        label_color = invert_color('#000000', background)
         label_ax.text(x_center, 0.7, conc_part, ha='center', va='center', 
-                     fontsize=8, rotation=0)    
+                 fontsize=8, rotation=0, color=label_color)    
 
     # Add tree brackets for compound groups
     bracket_y = 0.4
     bracket_height = 0.1
+    bracket_color = invert_color('#000000', background)
     
     for compound_name, stimulus_codes in grouped_stimuli:
         # Only draw bracket if there are stimuli from this group in the plot
@@ -365,21 +492,21 @@ def draw_mean_signal_cluster(neuron_segments_df,
             x_end = stimulus_x_centers[end_idx]
             
             # Draw bracket
-            label_ax.plot([x_start, x_end], [bracket_y, bracket_y], 'k-', linewidth=1)
-            label_ax.plot([x_start, x_start], [bracket_y, bracket_y + bracket_height], 'k-', linewidth=1)
-            label_ax.plot([x_end, x_end], [bracket_y, bracket_y + bracket_height], 'k-', linewidth=1)
+            label_ax.plot([x_start, x_end], [bracket_y, bracket_y], color=bracket_color, linewidth=1)
+            label_ax.plot([x_start, x_start], [bracket_y, bracket_y + bracket_height], color=bracket_color, linewidth=1)
+            label_ax.plot([x_end, x_end], [bracket_y, bracket_y + bracket_height], color=bracket_color, linewidth=1)
             
             # Add compound name
             label_ax.text((x_start + x_end) / 2, bracket_y - 0.1, compound_name, 
-                         ha='center', va='top', fontsize=8, weight='bold')
+                         ha='center', va='top', fontsize=8, weight='bold', color=bracket_color)
         elif len(group_stimuli_in_plot) == 1: # If only one stimulus, just add the name without bracket
             idx = stimulus_types.index(group_stimuli_in_plot[0])
             x_center = stimulus_x_centers[idx]
             label_ax.text(x_center, bracket_y - 0.1, compound_name, 
-                         ha='center', va='top', fontsize=8, weight='bold')
+                         ha='center', va='top', fontsize=8, weight='bold', color=bracket_color)
             
     if save_folder:
-        fig.savefig(f"{save_folder}/mean_signal.png", dpi=300, bbox_inches='tight')
+        # fig.savefig(f"{save_folder}/mean_signal.png", dpi=300, bbox_inches='tight')
         fig.savefig(f"{save_folder}/mean_signal.svg", dpi=300, bbox_inches='tight')
     
     # plt.show()
