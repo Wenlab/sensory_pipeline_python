@@ -264,7 +264,8 @@ def draw_mean_signal_cluster(neuron_segments_df,
                              plot_covariance=True,
                              custom_order=None,
                              combine_neurons=False,
-                             background='white'
+                             background='white',
+                             show_date_difference=False
                              ):
     if neuron_segments_df.empty:
         print("neuron_segments_df is empty. Nothing to plot.")
@@ -274,6 +275,23 @@ def draw_mean_signal_cluster(neuron_segments_df,
     if background not in ['white', 'black']:
         print("Invalid background parameter. Using 'white' as default.")
         background = 'white'
+
+    # Get unique dates for color mapping if show_date_difference is True
+    date_colors = {}
+    date_list = []
+    if show_date_difference:
+        if 'date' not in neuron_segments_df.columns:
+            print("Warning: 'date' column not found in DataFrame. Ignoring show_date_difference.")
+            show_date_difference = False
+        else:
+            date_list = sorted(neuron_segments_df['date'].unique())
+            # Generate distinct colors for each date
+            if len(date_list) <= 10:
+                color_palette = plt.cm.tab10.colors
+            else:
+                color_palette = plt.cm.tab20.colors
+            for idx, date in enumerate(date_list):
+                date_colors[date] = color_palette[idx % len(color_palette)]
 
     # Combine L/R neuron pairs if requested (must be done before using custom_order)
     if combine_neurons:
@@ -387,44 +405,78 @@ def draw_mean_signal_cluster(neuron_segments_df,
 
             df_subset = neuron_segments_df[(neuron_segments_df['neuron']==neuron) & (neuron_segments_df['stimulus']==stimulus)]
             
-            mean_trace = None
-            sem_trace = None
-            is_symmetric = False
+            # Check for symmetric neuron fallback
+            symmetric_neuron = get_symmetric_neuron(neuron)
+            df_symmetric = neuron_segments_df[(neuron_segments_df['neuron']==symmetric_neuron) & (neuron_segments_df['stimulus']==stimulus)]
             
-            if not df_subset.empty:
-                mean_trace = df_subset.groupby('time_point')['delta_F_over_F0'].mean()
-                sem_trace = df_subset.groupby('time_point')['delta_F_over_F0'].sem()
+            if show_date_difference:
+                # Draw traces for each date separately
+                for date in date_list:
+                    date_color = date_colors[date]
+                    # Convert to hex if it's a tuple
+                    if isinstance(date_color, tuple):
+                        date_color = '#{:02x}{:02x}{:02x}'.format(int(date_color[0]*255), int(date_color[1]*255), int(date_color[2]*255))
+                    
+                    df_date = df_subset[df_subset['date'] == date]
+                    is_symmetric = False
+                    
+                    if df_date.empty and not df_symmetric.empty:
+                        df_date = df_symmetric[df_symmetric['date'] == date]
+                        is_symmetric = True
+                    
+                    if not df_date.empty:
+                        mean_trace = df_date.groupby('time_point')['delta_F_over_F0'].mean()
+                        sem_trace = df_date.groupby('time_point')['delta_F_over_F0'].sem()
+                        
+                        y_values = mean_trace.values + current_offset
+                        y_upper = y_values + sem_trace.values
+                        y_lower = y_values - sem_trace.values
+                        
+                        linestyle = '-' if not is_symmetric else '-.'
+                        fill_alpha = 0.2
+                        
+                        # Fill with background first for cleaner look
+                        ax.fill_between(mean_trace.index, y_lower, y_upper, color=background, alpha=1.0, zorder=z_order)
+                        ax.fill_between(mean_trace.index, y_lower, y_upper, color=date_color, alpha=fill_alpha, zorder=z_order+0.1)
+                        ax.plot(mean_trace.index, y_values, color=date_color, linestyle=linestyle, zorder=z_order+0.2)
             else:
-                symmetric_neuron = get_symmetric_neuron(neuron)
-                df_symmetric = neuron_segments_df[(neuron_segments_df['neuron']==symmetric_neuron) & (neuron_segments_df['stimulus']==stimulus)]
-                if not df_symmetric.empty:
-                    mean_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].mean()
-                    sem_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].sem()
-                    is_symmetric = True
-            
-            if mean_trace is not None:
-                y_values = mean_trace.values + current_offset
-                y_upper = y_values + sem_trace.values
-                y_lower = y_values - sem_trace.values
+                # Original behavior: aggregate all dates together
+                mean_trace = None
+                sem_trace = None
+                is_symmetric = False
                 
-                # Adjust colors based on background
-                if background == 'black':
-                    trace_color = 'cyan'
-                    fill_color = 'cyan'
-                    fill_alpha = 0.3
+                if not df_subset.empty:
+                    mean_trace = df_subset.groupby('time_point')['delta_F_over_F0'].mean()
+                    sem_trace = df_subset.groupby('time_point')['delta_F_over_F0'].sem()
                 else:
-                    trace_color = 'blue'
-                    fill_color = 'gray'
-                    fill_alpha = 0.3
-
-                linestyle = '-'
-                if is_symmetric:
-                    linestyle = '-.'
+                    if not df_symmetric.empty:
+                        mean_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].mean()
+                        sem_trace = df_symmetric.groupby('time_point')['delta_F_over_F0'].sem()
+                        is_symmetric = True
                 
-                # Fill
-                ax.fill_between(mean_trace.index, y_lower, y_upper, color=background, alpha=1.0, zorder=z_order)
-                ax.fill_between(mean_trace.index, y_lower, y_upper, color=fill_color, alpha=fill_alpha, zorder=z_order+0.1)
-                ax.plot(mean_trace.index, y_values, color=trace_color, linestyle=linestyle, zorder=z_order+0.2)
+                if mean_trace is not None:
+                    y_values = mean_trace.values + current_offset
+                    y_upper = y_values + sem_trace.values
+                    y_lower = y_values - sem_trace.values
+                    
+                    # Adjust colors based on background
+                    if background == 'black':
+                        trace_color = 'cyan'
+                        fill_color = 'cyan'
+                        fill_alpha = 0.3
+                    else:
+                        trace_color = 'blue'
+                        fill_color = 'gray'
+                        fill_alpha = 0.3
+
+                    linestyle = '-'
+                    if is_symmetric:
+                        linestyle = '-.'
+                    
+                    # Fill
+                    ax.fill_between(mean_trace.index, y_lower, y_upper, color=background, alpha=1.0, zorder=z_order)
+                    ax.fill_between(mean_trace.index, y_lower, y_upper, color=fill_color, alpha=fill_alpha, zorder=z_order+0.1)
+                    ax.plot(mean_trace.index, y_values, color=trace_color, linestyle=linestyle, zorder=z_order+0.2)
                 
             # Add neuron label on the first subplot (even if trace is missing)
             if j == 0:
@@ -504,6 +556,25 @@ def draw_mean_signal_cluster(neuron_segments_df,
             x_center = stimulus_x_centers[idx]
             label_ax.text(x_center, bracket_y - 0.1, compound_name, 
                          ha='center', va='top', fontsize=8, weight='bold', color=bracket_color)
+
+    # Add legend for dates if show_date_difference is True
+    if show_date_difference and date_list:
+        from matplotlib.lines import Line2D
+        legend_handles = []
+        for date in date_list:
+            date_color = date_colors[date]
+            if isinstance(date_color, tuple):
+                date_color = '#{:02x}{:02x}{:02x}'.format(int(date_color[0]*255), int(date_color[1]*255), int(date_color[2]*255))
+            legend_handles.append(Line2D([0], [0], color=date_color, linewidth=2, label=str(date)))
+        
+        # Add legend to the figure (top right corner)
+        legend_text_color = invert_color('#000000', background)
+        legend = fig.legend(handles=legend_handles, loc='upper right', 
+                           title='Date', framealpha=0.8,
+                           bbox_to_anchor=(0.98, 0.98))
+        legend.get_title().set_color(legend_text_color)
+        for text in legend.get_texts():
+            text.set_color(legend_text_color)
             
     if save_folder:
         # fig.savefig(f"{save_folder}/mean_signal.png", dpi=300, bbox_inches='tight')
