@@ -42,14 +42,14 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
     if ref_green_folder_path is not None:
         ref_green = _lazy_read_image_npy(ref_green_folder_path)
         ref_green = ref_green[0].compute()
-        ex_green[0] = ref_green.transpose(2,0,1)
+        ex_green[0] = ref_green.transpose(2,0,1) if kwargs.get("need_transpose", False) else ref_green
         if ref_neuron_pt_tuple_path is not None:
             ref_neuron_pt_tuple = np.load(ref_neuron_pt_tuple_path)
             neuron_pt_tuple[0] = ref_neuron_pt_tuple[0]
     if ref_red_folder_path is not None:
         ref_red = _lazy_read_image_npy(ref_red_folder_path)
-        ref_red[0] = ref_red[0].compute()
-        ex_red[0] = ref_red[0].transpose(2,0,1)
+        ref_red = ref_red[0].compute()
+        ex_red[0] = ref_red.transpose(2,0,1) if kwargs.get("need_transpose", False) else ref_red
     if aligned_volume_path is not None:
         align_volume = np.load(aligned_volume_path)
         ex_green[1] = align_volume.transpose(2,0,1)
