@@ -462,7 +462,12 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                         # start_time = seg.get('start_time', 6)
                         x_values = np.arange(len(values)) - start_time
                         # Create hover text with worm_key and date
-                        hover_text = f"{seg.get('worm_key', '')}_{seg.get('segment_index', '')}_{seg.get('date', '')}"
+                        seg_date = seg.get('date', 'unknown')
+                        hover_text = f"{seg.get('worm_key', '')}_{seg.get('segment_index', '')}_{seg_date}"
+                        
+                        # Use date-based legendgroup if show_date_difference is enabled
+                        trace_legendgroup = f"date_{seg_date}" if show_date_difference else legend_group_name
+                        
                         fig.add_trace(
                             go.Scatter(
                                 x=x_values,
@@ -471,7 +476,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                 line=dict(width=1, color=highlight_color),
                                 opacity=0.4,
                                 showlegend=False,
-                                legendgroup=legend_group_name,
+                                legendgroup=trace_legendgroup,
                                 hovertemplate=(
                                     f"{hover_text}<br>"
                                     f"x: %{{x}}<br>"
