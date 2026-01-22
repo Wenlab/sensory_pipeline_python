@@ -533,7 +533,7 @@ def transfer_dataframe2dict(df: pd.DataFrame) -> dict:
     """
     neuron_segments_dict = {}
     required_cols = ['neuron', 'stimulus', 'time_point', 'delta_F_over_F0', 'worm_key', 'segment_index', 'date']
-    missing = required_cols - set(df.columns)
+    missing = set(required_cols) - set(df.columns)
     if missing:
         raise ValueError(f"DataFrame is missing required columns: {missing}")
     df_use = df.sort_values(['neuron', 'stimulus', 'worm_key', 'segment_index', 'date', 'time_point'])
