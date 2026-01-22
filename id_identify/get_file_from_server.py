@@ -69,8 +69,8 @@ def get_ex_ref_image(folder_path, output_path, t_start=0, t_end=2, **kwargs):
                     )
                     red = lazy_read_tiff_stack(red_tiff_path_, volume_read_params)
                     green = lazy_read_tiff_stack(green_tiff_path_, volume_read_params)
-                    save_dask_array_as_npy(red[0], os.path.join(output_path, "ref_red.npy"))
-                    save_dask_array_as_npy(green[0], os.path.join(output_path, "ref_green.npy"))
+                    save_dask_array_as_npy(red[0], os.path.join(output_path, subfolder.name.split("_")[0].replace("W", "w"), "ref_volume_red","ref_red.npy"))
+                    save_dask_array_as_npy(green[0], os.path.join(output_path, subfolder.name.split("_")[0].replace("W", "w"), "ref_volume_green","ref_green.npy"))
                 else:
                     print(f"Skipping {subfolder}, does not match expected naming convention.")
 
