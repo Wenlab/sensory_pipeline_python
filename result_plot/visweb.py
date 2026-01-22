@@ -367,6 +367,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                     mode='lines',
                     line=dict(color=color, width=2),
                     name=legend_name,
+                    legendgroup=group_key,
                     showlegend=True
                 )
             )
@@ -451,6 +452,9 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                     row=row_idx, col=col_idx
                 )
 
+                # Determine legend group name for this stimulus
+                legend_group_name = group_key
+                
                 if display_type == 'individual':
                     # Plot individual traces
                     for seg in all_segments:
@@ -467,6 +471,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                 line=dict(width=1, color=highlight_color),
                                 opacity=0.4,
                                 showlegend=False,
+                                legendgroup=legend_group_name,
                                 hovertemplate=(
                                     f"{hover_text}<br>"
                                     f"x: %{{x}}<br>"
@@ -506,6 +511,9 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                             dash_style = date_dash_map.get(date, 'solid')
                             hover_text = f"{neuron} - {get_stimulus_label(group_key, odor_information)} ({date})"
                             
+                            # Legend group for date-based traces
+                            date_legend_group = f"date_{date}"
+                            
                             # Plot mean line with date-specific dash style
                             fig.add_trace(
                                 go.Scatter(
@@ -514,6 +522,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                     mode='lines',
                                     line=dict(color=highlight_color, width=2, dash=dash_style),
                                     showlegend=False,
+                                    legendgroup=date_legend_group,
                                     hovertemplate=(
                                         f"{hover_text}<br>"
                                         f"x: %{{x}}<br>"
@@ -533,6 +542,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                     fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.15,)}',
                                     line=dict(color='rgba(255,255,255,0)'),
                                     showlegend=False,
+                                    legendgroup=date_legend_group,
                                     hoverinfo='none'
                                 ),
                                 row=row_idx, col=col_idx
@@ -562,6 +572,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                 mode='lines',
                                 line=dict(color=highlight_color, width=2),
                                 showlegend=False,
+                                legendgroup=legend_group_name,
                                 hovertemplate=(
                                         f"{hover_text}<br>"
                                         f"x: %{{x}}<br>"
@@ -581,6 +592,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                                 fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.3,)}',
                                 line=dict(color='rgba(255,255,255,0)'),
                                 showlegend=False,
+                                legendgroup=legend_group_name,
                                 hoverinfo='none'
                             ),
                             row=row_idx, col=col_idx
@@ -627,6 +639,7 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                         mode='lines',
                         line=dict(color='gray', width=2, dash=dash_style),
                         name=f"Date: {date}",
+                        legendgroup=f"date_{date}",
                         showlegend=True
                     ),
                     row=1, col=1
@@ -647,7 +660,9 @@ def create_neuronal_dashboard(neuron_segments_dict, odor_information=None, stimu
                 x=0,
                 title="Stimulus / Date",
                 bordercolor="White",
-                borderwidth=0.5
+                borderwidth=0.5,
+                itemclick="toggle",
+                itemdoubleclick="toggleothers"
             )
         )
         
