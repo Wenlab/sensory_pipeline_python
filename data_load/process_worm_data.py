@@ -511,7 +511,8 @@ def transfer_dict2dataframe(neuron_segments_dict):
                         'worm_key': segment.get('worm_key', 'unknown'),
                         'segment_index': segment.get('segment_index', 'unknown'),
                         'date': segment.get('date', 'unknown'),
-                        'start_time': segment.get('start_time', 'unknown'),
+                        'start_time': segment.get('start_time', 5),
+                        'end_time': segment.get('end_time', 15),
                         'stim_name': segment.get('stim_name', stimulus_type),
                         'stim_color': segment.get('stim_color', '#808080')
                     })
