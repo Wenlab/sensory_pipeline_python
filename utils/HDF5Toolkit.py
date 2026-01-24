@@ -104,6 +104,11 @@ def load_from_hdf5(item):
             # Optional: convert back to torch tensor if original was a tensor
             if TORCH_AVAILABLE and 'torch.Tensor' in item.attrs['data_type']:
                 data = torch.tensor(data)
+        
+        if isinstance(data, bytes):
+            data = data.decode('utf-8')
+        elif isinstance(data, np.ndarray) and data.dtype.kind == 'S':
+            data = data.astype(str)
                 
         return data
 
