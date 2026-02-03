@@ -159,7 +159,7 @@ def _compute_segment_delta(intensity_segment, fitted_segment, background_noise, 
         raw_signal = intensity_segment.iloc[roi_idx].to_numpy(dtype=np.float64)
         baseline = fitted_segment.iloc[roi_idx].to_numpy(dtype=np.float64)
 
-        if baseline.size == 0:
+        if baseline.size == 0 or np.all(np.isnan(baseline)):
             continue
 
         min_baseline = np.percentile(baseline, 5)
@@ -297,7 +297,7 @@ def calculate_delta_F_over_F0(
 
     return combined_delta, combined_fitted, quality_info
 
-def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting=1):
+def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting=1, min_points=20):
     # baseline_intervals = [(start - baseline_pre, start - baseline_post) for start, _ in intervals]
     # improved
     baseline_intervals = []
@@ -356,13 +356,14 @@ def fitted_F_base(intensity, intervals, baseline_pre, baseline_post, vps_setting
         x_data = x_data[finite_mask]
         y_data = y_data[finite_mask]
 
-        if len(x_data) == 0 or len(y_data) == 0:
-            mean_val = np.nanmean(intensity.iloc[roi_idx])
-            fitted_F0 = np.ones(len(time_axis)) * mean_val
+        if len(x_data) < min_points or len(y_data) < min_points:
+            # Insufficient data to fit F0 (e.g. due to step artifact masking)
+            fitted_F0 = np.full(len(time_axis), np.nan)
             fitted_F0_curves.append(fitted_F0)
-            fitted_params.append([0, 0, mean_val])
-            r2_scores.append(0)
-            model_types.append("mean")
+             # Use safe NaNs/zeros for params to avoid shape issues, but mark valid result as Nan
+            fitted_params.append([np.nan, np.nan, np.nan])
+            r2_scores.append(np.nan)
+            model_types.append("insufficient_data")
             continue
 
         # 排序确保时间序列有序
