@@ -8,6 +8,7 @@ import numpy as np
 from result_analysis.single_trial_analyse import cluster_by_corr_then_sort_by_delay, _load_single_trial_intensity, _resolve_stimulus_metadata, _prepare_delta_f
 from utils.interpolate import interpolate_over_nans
 from utils.vis_plotly_utils import add_regions_to_fig, draw_waterfall_plot
+from data_load.preprocessing import detect_and_mask_step_drops
 
 def prepare_signal_dict(h5_file_path, root_name, labjack_excel_path=None, raw_data=False):
     intensity, _, n_seq, _ = _load_single_trial_intensity(h5_file_path, root_name)
@@ -20,6 +21,7 @@ def prepare_signal_dict(h5_file_path, root_name, labjack_excel_path=None, raw_da
         delta_f = intensity - np.nanmean(intensity, axis=1, keepdims=True)
         delta_f_interp, t_inter = interpolate_over_nans(delta_f)
     else:
+        intensity = detect_and_mask_step_drops(intensity)
         delta_f, fitted, quality = _prepare_delta_f(intensity, stimulus_intervals, n_seq, baseline_pre=6, baseline_post=1, vps_setting=1, background_noise=102)
         delta_f_interp, t_inter = interpolate_over_nans(delta_f)
 
