@@ -150,7 +150,7 @@ def draw_waterfall_plot(x, y_dict, y_offset, id_list=None, fill_area=True, fig=N
     
     id_list = list(reversed(id_list)) # 反转顺序以从下到上绘制
     # colors = cm.hsv(np.linspace(0, 1, len(id_list)))  # 使用渐变色
-    colors = [_color_to_rgba(f'hsl({i*330/len(id_list)},100%,{kwargs.get('brightness', "35%")})',0.8) for i in range(len(id_list))]
+    colors = [_color_to_rgba(f'hsl({i*330/len(id_list)},100%,{kwargs.pop("brightness", "35%")})',0.8) for i in range(len(id_list))]
     id_name_dict = kwargs.pop('id_name_dict', {})
     # ymax = 0
     traces = []
