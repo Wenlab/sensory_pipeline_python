@@ -8,6 +8,7 @@ def _color_to_rgba(color, alpha=None)-> str:
     将颜色字符串转换为 RGB 或 RGBA 格式。
     支持的输入格式为ImageColor.getrgb(color)可以解析的格式
     :param color: 颜色字符串，例如 'red', '#ff0000', 'rgb(255,0,0)', 'hsl(0,100%,50%)' 等。若格式中含有a值, 则返回rgba格式。
+    也可以是 matplotlib 生成的 tuple/list/ndarray, 如 (0.1, 0.2, 0.3, 1.0)
     :param alpha: 可选的透明度值，范围为 0-255。如果提供了该值, 则返回 RGBA 格式。
     :return: RGB 或 RGBA 格式的字符串，例如 'rgb(255,0,0)' 或 'rgba(255,0,0,128)'。
     :raises ValueError: 如果颜色字符串无法解析或格式不正确。
@@ -22,7 +23,25 @@ def _color_to_rgba(color, alpha=None)-> str:
     'rgba (0, 0, 255, 200)'
     """
     try:
-        rgb_tuple = ImageColor.getrgb(color)
+        if isinstance(color, (tuple, list, np.ndarray)):
+            # Handle tuple/list/ndarray input (e.g. from matplotlib)
+            vals = [float(x) for x in color]
+            if len(vals) < 3:
+                 raise ValueError(f"Color tuple too short: {color}")
+            
+            r, g, b = vals[0], vals[1], vals[2]
+            # Convert 0-1 float to 0-255 int
+            if all(0 <= x <= 1.0 for x in [r, g, b]):
+                r, g, b = int(r * 255), int(g * 255), int(b * 255)
+            else:
+                r, g, b = int(r), int(g), int(b)
+            
+            rgb_tuple = (r, g, b)
+            if len(vals) > 3:
+                rgb_tuple += (vals[3],)
+        else:
+            rgb_tuple = ImageColor.getrgb(color)
+
         if len(rgb_tuple) == 3 and alpha is None:
             return f"rgb({rgb_tuple[0]},{rgb_tuple[1]},{rgb_tuple[2]})"
         elif len(rgb_tuple) == 4:
