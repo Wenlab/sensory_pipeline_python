@@ -290,16 +290,23 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 )
 
                 if display_type == 'individual':
-                    # Group by trial
-                    trial_cols = ['worm_key', 'segment_index', 'date']
+                    # Group by trial AND original neuron to prevent connecting separate neurons (e.g. L/R)
+                    trial_cols = ['worm_key', 'segment_index', 'date', 'neuron']
+                    
                     for trial_info, trial_data in cell_df.groupby(trial_cols):
-                        worm, seg, date = trial_info
+                        # 解包增加一项 original_neuron_name
+                        worm, seg, date, original_neuron_name = trial_info
+                        
                         trace_legendgroup = f"date_{date}" if show_date_difference else group_key
+                        
+                        # 在 hovertemplate 中增加原始神经元名称显示，方便调试区分
                         fig.add_trace(go.Scatter(
                             x=trial_data['rel_time'], y=trial_data['delta_F_over_F0'],
                             mode='lines', line=dict(width=1, color=highlight_color),
                             opacity=0.4, showlegend=False, legendgroup=trace_legendgroup,
-                            hovertemplate=(f"{worm}_{seg}_{date}<br>x: %{{x}}<br>y: %{{y:.3f}}<br>"
+                            hovertemplate=(f"{worm}_{seg}_{date}<br>"
+                                           f"Original: {original_neuron_name}<br>"  # 显示原始名称 (如 ADLL)
+                                           f"x: %{{x}}<br>y: %{{y:.3f}}<br>"
                                            f"{neuron} - {get_stimulus_label(group_key, odor_information)}")
                         ), row=row_idx, col=col_idx)
                 else:
@@ -416,20 +423,28 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
             return "Error: No plot data selected to save."
 
         try:
-            # 1. 使用完全相同的逻辑重新生成图形
-            # 我们只需要 fig 对象，所以用 _ 忽略 container_style
             fig, _ = generate_response_figure(
                 selected_neurons, selected_stimuli, display_type, combine_options
             )
+            fig.layout.width = None
+            fig.layout.height = None
+            # Update layout for better standalone viewing
+            fig.update_layout(
+                autosize=True, 
+                template='plotly_white',
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
             
-            # 2. 将图形保存到指定的 HTML 文件
-            fig.write_html(save_path)
+            fig.write_html(
+                save_path,
+                include_plotlyjs='cdn',
+                full_html=True,
+                config={'responsive': True, 'scrollZoom': True}
+            )
             
-            # 3. 向用户返回成功消息
             return f"Plot successfully saved to {save_path}"
             
         except Exception as e:
-            # 4. 返回错误消息
             return f"Error saving plot: {str(e)}"
     return app
 
