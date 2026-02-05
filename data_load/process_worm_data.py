@@ -146,7 +146,55 @@ def extract_neuron_groups(worm_data, date, vps_setting=1, boundary_method='prese
 
     return neuron_segments_dict, neuron_groups
 
-
+def drop_invalid_trials(neuron_segments_dict, min_length=30):
+    """
+    Remove trials where 'deltaFoverF_0' is empty
+    Parameters:
+    - neuron_segments_dict: dict
+        The dictionary returned by reorganize_neuron_segments.
+    - min_length: int
+        Minimum number of data points for a trial to be considered valid.
+    Returns:
+    - neuron_segments_dict: dict
+        The cleaned dictionary.
+    """
+    neurons_to_remove = []
+    for neuron in list(neuron_segments_dict.keys()):
+        stim_map = neuron_segments_dict[neuron]
+        stimuli_to_remove = []
+        for stimulus in list(stim_map.keys()):
+            trials = stim_map[stimulus]
+            cleaned_trials = []
+            for trial in trials:
+                data = trial.get('deltaFoverF_0')
+                # Check if data is valid
+                is_valid = False
+                if data is not None:
+                    # Handle list or numpy array
+                    if isinstance(data, list):
+                        data = np.array(data)
+                    if isinstance(data, np.ndarray):
+                        # Check if not empty
+                        if data.size > min_length:
+                            is_valid = True
+                        
+                if is_valid:
+                    cleaned_trials.append(trial)
+            # Update trials for this stimulus
+            if cleaned_trials:
+                stim_map[stimulus] = cleaned_trials
+            else:
+                stimuli_to_remove.append(stimulus)
+        # Remove stimuli with no valid trials
+        for stim in stimuli_to_remove:
+            del stim_map[stim]
+        # If neuron has no stimuli left, mark for removal
+        if not stim_map:
+            neurons_to_remove.append(neuron)
+    # Remove empty neurons
+    for neuron in neurons_to_remove:
+        del neuron_segments_dict[neuron]
+    return neuron_segments_dict
 
 def downsampling_with_boundary_preservation(segment_data, vps_setting=5, boundary_method='preserve'):
     """
@@ -473,16 +521,27 @@ def extract_and_normalize_worm_data(worm_data, date, vps_setting=1, boundary_met
     - neuron_groups: dict, neuron groups categorized by group keys
     """
     # Extract neuron groups and segments (now directly in reorganized format)
+    pre_segment = kwargs.get('pre_segment', 5)
+    post_segment = kwargs.get('post_segment', 30)
+    
     neuron_segments_dict, neuron_groups = extract_neuron_groups(
         worm_data,
         date=date,
         vps_setting=vps_setting,
         boundary_method=boundary_method,
-        pre_segment=kwargs.get('pre_segment', 5),
-        post_segment=kwargs.get('post_segment', 30),
+        pre_segment=pre_segment,
+        post_segment=post_segment,
         stim_name=kwargs.get('stim_name'),
         stim_color=kwargs.get('stim_color')
     )
+    
+
+    stimulus_duration = 10
+    expected_length = pre_segment + stimulus_duration + post_segment
+    # Set threshold to ~2/3 of expected length (soft coding the previous '30' vs '45' check)
+    min_length_threshold = int(expected_length * 0.67)
+
+    neuron_segments_dict = drop_invalid_trials(neuron_segments_dict, min_length=min_length_threshold)
 
     return neuron_segments_dict, neuron_groups
 
