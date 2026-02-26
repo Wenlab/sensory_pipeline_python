@@ -31,6 +31,7 @@ nbformat = ">=5.10.4,<6"
 ipywidgets = ">=8.1.8,<9"
 pytables = ">=3.10.2,<4"
 pytest = ">=9.0.2,<10"
+tensorly = ">=0.8.2,<0.9"
 
 [target.osx-arm64.dependencies]
 numba = ">=0.61.2,<0.64"
@@ -40,6 +41,7 @@ pyqt = ">=5.15,<6"
 dpca = ">=1.0.5, <2"
 napari-label-manager = ">=0.1.4, <0.2"
 napari-layer-divider = ">=0.0.3, <0.0.4"
+tensorly = "*"
 
 [target.win-64.pypi-dependencies]
 numba = "==0.61.2"
