@@ -6,6 +6,8 @@ from sklearn.decomposition import PCA
 import tensorly as tl
 from tensorly.decomposition import parafac
 from dPCA import dPCA
+from scipy.cluster.hierarchy import linkage, fcluster
+from sklearn.metrics import silhouette_score
 
 def prepare_tensor(df: pd.DataFrame, smooth_sigma: float = 1.0, keep_trials: bool = False) -> tuple[np.ndarray, list, list]:
     """
@@ -113,3 +115,40 @@ def decompose_latent_features(tensor: np.ndarray, method: str = 'pca', n_compone
              
     else:
         raise ValueError(f"Unknown method {method}")
+
+def cluster_stimuli_hierarchical(feature_matrix: np.ndarray, stimuli_names: list) -> tuple:
+    """
+    Cluster stimuli using Ward linkage and find optimal K via silhouette score.
+    Returns: linkage matrix, labels, optimal K, best silhouette score
+    """
+    S = feature_matrix.shape[0]
+    if S < 2:
+        return np.zeros((0, 4)), np.array([1]*S), 1, -1
+        
+    Z = linkage(feature_matrix, method='ward')
+    
+    best_k = 2
+    best_score = -1
+    best_labels = None
+    
+    # Evaluate 2 to S-1 clusters
+    max_k = min(S, 6) # Practical cap
+    
+    for k in range(2, max_k):
+        labels = fcluster(Z, k, criterion='maxclust')
+        # silhouette needs at least 2 clusters and less than N samples
+        if len(np.unique(labels)) > 1 and len(np.unique(labels)) < S:
+            try:
+                score = silhouette_score(feature_matrix, labels)
+                if score > best_score:
+                    best_score = score
+                    best_k = k
+                    best_labels = labels
+            except ValueError:
+                pass
+                
+    if best_labels is None:
+        best_labels = fcluster(Z, 2, criterion='maxclust')
+        best_k = 2
+        
+    return Z, best_labels, best_k, best_score
