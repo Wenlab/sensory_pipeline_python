@@ -30,6 +30,7 @@ anywidget = ">=0.9.19,<0.10"
 nbformat = ">=5.10.4,<6"
 ipywidgets = ">=8.1.8,<9"
 pytables = ">=3.10.2,<4"
+pytest = ">=9.0.2,<10"
 
 [target.osx-arm64.dependencies]
 numba = ">=0.61.2,<0.64"
