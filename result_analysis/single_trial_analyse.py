@@ -31,10 +31,15 @@ import plotly.subplots as psub
 import scipy.cluster.hierarchy as sch
 import numpy as np
 
-def cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=10, ref_method='max_var'):
+def cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=10, ref_method='max_var', cluster_threshold=None):
     # 步骤1: 预处理（标准化）
     def standardize(signal):
-        return (signal - np.mean(signal))/max(np.mean(signal),1)
+        # 使用 Z-Score 标准化: (x - mean) / std
+        mean_val = np.mean(signal)
+        std_val = np.std(signal)
+        if std_val == 0:
+            return np.zeros_like(signal)
+        return (signal - mean_val) / std_val
 
     std_signals = {ch: standardize(sig) for ch, sig in signal_dict.items()}
     channels = list(signal_dict.keys())
@@ -51,7 +56,8 @@ def cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=10, ref_method='max_
             sig_j = std_signals[ch_j]
             
             # 计算互相关
-            corr = correlate(sig_i, sig_j, mode='full')
+            # Normalize Cross-Correlation result by signal length
+            corr = correlate(sig_i, sig_j, mode='full') / len(sig_i)
             lags = correlation_lags(len(sig_i), len(sig_j), mode='full')
             
             # 限制延迟范围
@@ -90,7 +96,20 @@ def cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=10, ref_method='max_
     Z = linkage(corr_abs, method='ward')  # 使用Ward方法进行层次聚类
 
     # 自动确定聚类数量（基于距离阈值）
-    max_dist = np.max(Z[:, 2]) * 0.5  # 使用最大距离的50%作为阈值
+    if cluster_threshold is None:
+        if Z.shape[0] > 0:
+            max_linkage_dist = np.max(Z[:, 2])
+            # 如果最大距离很小（例如 < 0.5，对应相关系数 > 0.5），说明整体高度相关，不应强制分割
+            # 这种情况（如只有两个强相关信号）应保留为一个聚类
+            if max_linkage_dist < 0.5:
+                max_dist = max_linkage_dist * 1.1 # 阈值略高于最大距离，确保合并
+            else:
+                max_dist = max_linkage_dist * 0.5 # 否则切分最远的分支
+        else:
+            max_dist = 0
+    else:
+        max_dist = cluster_threshold
+
     clusters = fcluster(Z, max_dist, criterion='distance')
 
     # 2. 计算每个通道的方差（原始信号，未标准化）
@@ -286,6 +305,63 @@ def cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=10, ref_method='max_
     return (sorted_channels, sorted_corr_matrix, sorted_delay_matrix, fig_corr, fig_delay)
 
 
+def cluster_neuron_dataframe(df, 
+                           value_col='delta_F_over_F0', 
+                           neuron_col='neuron', 
+                           time_col='time_point', 
+                           stimulus_col='stimulus', 
+                           max_lag=10,
+                           ref_method='max_var'):
+    """
+    Adapts a DataFrame to the signal_dict format and performs clustering.
+    Concatenates signals from all stimuli for each neuron (Global Fingerprint style).
+    """
+    # 1. Pivot to get (neuron, stimulus, time) -> value
+    # We want a single time series per neuron.
+    # If multiple stimuli exist, we concatenate them.
+    
+    unique_stimuli = sorted(df[stimulus_col].unique())
+    unique_neurons = sorted(df[neuron_col].unique())
+    
+    signal_dict = {}
+    
+    # Calculate time points per stimulus (assuming consistent time points)
+    # We take the max length to be safe or assuming fixed structure
+    # Better: pivot standardly
+    
+    for neuron in unique_neurons:
+        neuron_data = df[df[neuron_col] == neuron]
+        concatenated_signal = []
+        
+        for stim in unique_stimuli:
+            stim_data = neuron_data[neuron_data[stimulus_col] == stim]
+            
+            if stim_data.empty:
+                # Imputation: How long is the signal?
+                # We need to infer expected length from other neurons or provided metadata
+                # For now, let's try to get common time index from the whole DF for this stimulus
+                ref_stim_data = df[df[stimulus_col] == stim][time_col].unique()
+                length = len(ref_stim_data)
+                concatenated_signal.append(np.zeros(length))
+            else:
+                # Group by time point to ensure sorted unique time points
+                # Assuming one value per time point per neuron/stimulus (mean signal)
+                # If there are multiple trials, we should probably average them first if the input DF is trial-level
+                # But the user usually passes 'neuron_segments_df' which might be trial level or mean level.
+                # Let's assume we take the mean if there are duplicates
+                mean_trace = stim_data.groupby(time_col)[value_col].mean().sort_index()
+                concatenated_signal.append(mean_trace.values)
+                
+        # Concatenate all parts
+        if concatenated_signal:
+            signal_dict[neuron] = np.concatenate(concatenated_signal)
+            
+    if not signal_dict:
+        return None
+        
+    return cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=max_lag, ref_method=ref_method)
+
+
 
 # %%
 # --- Single trial analysis pipeline ---
@@ -446,3 +522,19 @@ def _resolve_stimulus_colors(
         stimulus: to_hex(cmap(idx / max(1, len(unique) - 1)))
         for idx, stimulus in enumerate(unique)
     }
+
+
+def cluster_neuron_dataframe(df_wide, max_lag=10, ref_method='max_var'):
+    """
+    Wrapper for cluster_by_corr_then_sort_by_delay to handle DataFrame input.
+    
+    Args:
+        df_wide (pd.DataFrame): DataFrame with neurons as index and time series as columns.
+        max_lag (int): Maximum lag for cross-correlation.
+        ref_method (str): Method to select reference channel ('max_var' or 'center').
+        
+    Returns:
+        tuple: Result from cluster_by_corr_then_sort_by_delay
+    """
+    signal_dict = {neuron: df_wide.loc[neuron].values for neuron in df_wide.index}
+    return cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=max_lag, ref_method=ref_method)
