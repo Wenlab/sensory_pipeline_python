@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def prepare_chemo_tensor(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list, list]:
+def prepare_chemo_tensor(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list, list, dict]:
     """
     Step 1.1 - 1.3: Clean, average, and reshape into 2D and 3D tensors.
     """
@@ -30,4 +30,9 @@ def prepare_chemo_tensor(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list
     # Using 'mean response' here as placeholder for 2D construction
     tensor_2d = np.mean(tensor_3d, axis=2)
     
-    return tensor_2d, tensor_3d, stimuli, neurons
+    # Extract stimulus metadata mapping
+    stimulus_info = {}
+    if 'stim_name' in df.columns and 'stim_color' in df.columns:
+        stimulus_info = df[['stimulus', 'stim_name', 'stim_color']].drop_duplicates().set_index('stimulus').to_dict('index')
+    
+    return tensor_2d, tensor_3d, stimuli, neurons, stimulus_info
