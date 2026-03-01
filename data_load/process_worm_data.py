@@ -630,6 +630,24 @@ def transfer_dataframe2dict(df: pd.DataFrame) -> dict:
     
     return neuron_segments_dict
 
+def filter_trials(data):
+    if isinstance(data, dict):
+        filter_dict={}
+        for neuron, stimuli_data in data.items():
+            if not neuron.startswith('A'):
+                continue
+            if neuron in ['AFDL', 'AFDR']:
+                continue
+            filter_dict[neuron] = stimuli_data
+        return filter_dict
+    elif isinstance(data, pd.DataFrame):
+        data = data[data['neuron'].apply(lambda x: x.startswith('A'))]
+        data = data[data['neuron'].apply(lambda x: x not in ['AFDL', 'AFDR'])]
+        return data
+    else:
+        raise ValueError("Input data must be a dictionary or a DataFrame.")
+         
+
 def load_and_process_worm_data(
     h5_file_path,
     channel_info_path,
@@ -689,7 +707,7 @@ def load_and_process_worm_data(
                                baseline_post=baseline_post,
                                background_noise=background_noise)
 
-    # process and segment (neuron_segments_dict is now directly in reorganized format)
+    # process and segment
     neuron_segments_dict, neuron_groups = extract_and_normalize_worm_data(worm_data=worm_data,
                                                                            date=date,
                                                                            vps_setting=vps_setting,
@@ -699,6 +717,9 @@ def load_and_process_worm_data(
 
     neuron_segments_dict_corrected = apply_baseline_correction(neuron_segments_dict, correction_window=kwargs.get('correction_window', 5))
 
+    if kwargs.pop('filter_neuron', False):
+        neuron_segments_dict_corrected = filter_trials(neuron_segments_dict_corrected)
+    
     neuron_segments_df = transfer_dict2dataframe(neuron_segments_dict_corrected)
     # return a dict
     return_dict = {
@@ -706,8 +727,7 @@ def load_and_process_worm_data(
         "stimulus_lists": stimulus_lists,
         "ID_info": ID_info,
         "worm_data": worm_data,
-        "neuron_segments_dict": neuron_segments_dict,  # Now directly in reorganized format
-        "neuron_segments_dict_reorganized": neuron_segments_dict,  # Alias for backward compatibility
+        "neuron_segments_dict": neuron_segments_dict,
         "neuron_segments_dict_corrected": neuron_segments_dict_corrected,
         "neuron_groups": neuron_groups,
         "neuron_segments_df": neuron_segments_df
