@@ -4,12 +4,13 @@ from sklearn.metrics import silhouette_score
 
 def extract_peak_features(tensor_3d: np.ndarray, time_pts: list, on_window: tuple, off_window: tuple) -> np.ndarray:
     """
-    Extracts a 2N-dimensional feature vector of ON and OFF max absolute deviations.
+    Extracts an N-dimensional feature vector representing each neuron's max absolute deviation.
+    Evaluates across the entire response window (ON + OFF).
     Peak is defined as the maximum absolute deviation from baseline, preserving its original sign.
     """
     time_arr = np.array(time_pts)
-    on_mask = (time_arr >= on_window[0]) & (time_arr <= on_window[1])
-    off_mask = (time_arr >= off_window[0]) & (time_arr <= off_window[1])
+    # Combine the windows to capture both ON and OFF responses
+    mask = (time_arr >= on_window[0]) & (time_arr <= off_window[1])
     
     def _get_max_abs_dev(sub_tensor):
         if sub_tensor.shape[-1] == 0:
@@ -18,11 +19,8 @@ def extract_peak_features(tensor_3d: np.ndarray, time_pts: list, on_window: tupl
         max_vals = np.max(sub_tensor, axis=-1)
         return np.where(np.abs(min_vals) > np.abs(max_vals), min_vals, max_vals)
 
-    on_peaks = _get_max_abs_dev(tensor_3d[:, :, on_mask])
-    off_peaks = _get_max_abs_dev(tensor_3d[:, :, off_mask])
-    
-    # Returning concatenated features (S x 2N)
-    return np.concatenate([on_peaks, off_peaks], axis=1)
+    # Returning features (S x N)
+    return _get_max_abs_dev(tensor_3d[:, :, mask])
 
 def cluster_static_scalars(tensor_3d: np.ndarray, metric: str = 'peak', time_pts: list = None, on_window: tuple = None, off_window: tuple = None) -> tuple:
     """
