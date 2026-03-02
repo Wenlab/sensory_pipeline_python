@@ -2,15 +2,40 @@ import numpy as np
 from scipy.cluster.hierarchy import linkage, fcluster
 from sklearn.metrics import silhouette_score
 
-def cluster_static_scalars(tensor_3d: np.ndarray, metric: str = 'peak') -> tuple:
+def extract_peak_features(tensor_3d: np.ndarray, time_pts: list, on_window: tuple, off_window: tuple) -> np.ndarray:
     """
-    Phase 2: Extract scalar (peak/mean), compute Euclidean distances with Ward linkage.
+    Extracts a 2N-dimensional feature vector of ON and OFF max absolute deviations.
+    Peak is defined as the maximum absolute deviation from baseline, preserving its original sign.
+    """
+    time_arr = np.array(time_pts)
+    on_mask = (time_arr >= on_window[0]) & (time_arr <= on_window[1])
+    off_mask = (time_arr >= off_window[0]) & (time_arr <= off_window[1])
+    
+    def _get_max_abs_dev(sub_tensor):
+        if sub_tensor.shape[-1] == 0:
+            return np.zeros(sub_tensor.shape[:-1])
+        min_vals = np.min(sub_tensor, axis=-1)
+        max_vals = np.max(sub_tensor, axis=-1)
+        return np.where(np.abs(min_vals) > np.abs(max_vals), min_vals, max_vals)
+
+    on_peaks = _get_max_abs_dev(tensor_3d[:, :, on_mask])
+    off_peaks = _get_max_abs_dev(tensor_3d[:, :, off_mask])
+    
+    # Returning concatenated features (S x 2N)
+    return np.concatenate([on_peaks, off_peaks], axis=1)
+
+def cluster_static_scalars(tensor_3d: np.ndarray, metric: str = 'peak', time_pts: list = None, on_window: tuple = None, off_window: tuple = None) -> tuple:
+    """
+    Phase 2: Extract scalar metrics and compute Euclidean distances with Ward linkage.
     """
     S, N, T = tensor_3d.shape
     
     # Step 2.1 Extract Scalar
     if metric == 'peak':
-        matrix_2d = np.max(tensor_3d, axis=2)
+        if time_pts is not None and on_window is not None and off_window is not None:
+            matrix_2d = extract_peak_features(tensor_3d, time_pts, on_window, off_window)
+        else:
+            matrix_2d = np.max(tensor_3d, axis=2)
     else:
         matrix_2d = np.mean(tensor_3d, axis=2)
         
