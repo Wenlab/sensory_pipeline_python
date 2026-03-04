@@ -293,8 +293,16 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
             
         parsed_neurons = parse_text(selected_neurons_text)
         
-        # map stimuli labels back to codes
-        label_to_code = {get_stimulus_label(s, odor_information): s for s in all_stimuli}
+        # map stimuli labels and bare names back to codes
+        stim_resolver = {s: s for s in all_stimuli}
+        if odor_information:
+            for s, name in odor_information.items():
+                label = get_stimulus_label(s, odor_information)
+                stim_resolver[label] = s
+                # Also allow bare names (map to the first code that matches)
+                if name not in stim_resolver:
+                    stim_resolver[name] = s
+                    
         selected_stimuli = []
         cluster_stimuli_map = {} # cluster_name -> [stimulus_codes]
         cluster_names_ordered = []
@@ -311,22 +319,20 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 cluster_stimuli_map[cluster_name] = []
                 stim_items = parse_text(stim_str)
                 for item in stim_items:
-                    code = item
-                    if item in label_to_code:
-                        code = label_to_code[item]
-                    
-                    if code in all_stimuli:
-                        cluster_stimuli_map[cluster_name].append(code)
-                        stim_to_cluster[code] = cluster_name
-                        if code not in selected_stimuli:
-                            selected_stimuli.append(code)
+                    if item in stim_resolver:
+                        code = stim_resolver[item]
+                        if code in all_stimuli:
+                            cluster_stimuli_map[cluster_name].append(code)
+                            stim_to_cluster[code] = cluster_name
+                            if code not in selected_stimuli:
+                                selected_stimuli.append(code)
         else:
             parsed_stimuli = parse_text(selected_stimuli_text)
             for s in parsed_stimuli:
-                if s in all_stimuli:
-                    selected_stimuli.append(s)
-                elif s in label_to_code:
-                    selected_stimuli.append(label_to_code[s])
+                if s in stim_resolver:
+                    code = stim_resolver[s]
+                    if code in all_stimuli:
+                        selected_stimuli.append(code)
                     
         selected_neurons = []
         # Support combined neuron names in user text
