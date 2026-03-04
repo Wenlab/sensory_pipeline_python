@@ -538,7 +538,40 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 if row_idx == len(plot_neurons):
                     fig.update_xaxes(title_text="", row=row_idx, col=col_idx, fixedrange=True)
 
-        # 9. Global legend adjustments
+        # 9. Cluster Visualization (Separators & Labels)
+        if cluster_mode and plot_groups:
+            total_cols = len(plot_groups)
+            current_col_idx = 0
+            for cluster_name in cluster_names_ordered:
+                stimuli_in_cluster = cluster_stimuli_map.get(cluster_name, [])
+                n_cols = len([s for s in stimuli_in_cluster if s in plot_groups])
+                
+                if n_cols == 0:
+                    continue
+                
+                # Draw separator BEFORE if not the first cluster
+                if current_col_idx > 0:
+                    x_pos = current_col_idx / total_cols
+                    fig.add_shape(
+                        type="line", x0=x_pos, x1=x_pos, y0=0, y1=1.02,
+                        xref="paper", yref="paper",
+                        line=dict(color="rgba(0,0,0,0.2)", width=1.5, dash="dot")
+                    )
+                
+                # Add Cluster Label
+                label_x = (current_col_idx + n_cols / 2) / total_cols
+                fig.add_annotation(
+                    text=f"<b>{cluster_name}</b>",
+                    xref="paper", yref="paper",
+                    x=label_x, y=1.08,
+                    showarrow=False, font=dict(size=12, color="#475569"),
+                    bgcolor="rgba(255,255,255,0.9)",
+                    bordercolor="#e2e8f0", borderwidth=1, borderpad=2
+                )
+                
+                current_col_idx += n_cols
+
+        # 10. Global legend adjustments
         if show_date_difference:
             for date in all_dates:
                 fig.add_trace(go.Scatter(
@@ -550,7 +583,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         fig.update_layout(
             height=total_height, # Keep height explicitly so it scrolls vertically
             autosize=True,       # Self-adapting width
-            margin=dict(l=80, r=20, t=80, b=60),
+            margin=dict(l=80, r=20, t=110, b=60),
             template="plotly_white", hovermode="closest",
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
