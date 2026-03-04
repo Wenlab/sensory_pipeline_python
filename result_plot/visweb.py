@@ -303,7 +303,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         if cluster_mode:
             import re
             # Find all Cluster definitions: Cluster X: stim1, stim2...
-            matches = re.findall(r"(Cluster\s+\d+):\s+([\w\s,]+)", selected_stimuli_text)
+            matches = re.findall(r"(Cluster\s+\d+):\s*(.*?)(?=\s*Cluster\s+\d+:|$)", selected_stimuli_text, re.S)
             for cluster_name, stim_str in matches:
                 cluster_names_ordered.append(cluster_name)
                 cluster_stimuli_map[cluster_name] = []
