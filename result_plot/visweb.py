@@ -299,6 +299,8 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         cluster_stimuli_map = {} # cluster_name -> [stimulus_codes]
         cluster_names_ordered = []
         
+        stim_to_cluster = {} # stimulus_code -> cluster_name
+        
         cluster_mode = 'cluster_mode' in combine_options
         if cluster_mode:
             import re
@@ -315,6 +317,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                     
                     if code in all_stimuli:
                         cluster_stimuli_map[cluster_name].append(code)
+                        stim_to_cluster[code] = cluster_name
                         if code not in selected_stimuli:
                             selected_stimuli.append(code)
         else:
@@ -467,6 +470,9 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                         
                         trace_legendgroup = f"date_{date}" if show_date_difference else group_key
                         
+                        # Build hover text components
+                        cluster_info = f"[{stim_to_cluster[group_key]}] " if cluster_mode and group_key in stim_to_cluster else ""
+                        
                         # 在 hovertemplate 中增加原始神经元名称显示，方便调试区分
                         fig.add_trace(go.Scatter(
                             x=trial_data['rel_time'], y=trial_data['delta_F_over_F0'],
@@ -475,7 +481,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                             hovertemplate=(f"{worm}_{seg}_{date}<br>"
                                            f"Original: {original_neuron_name}<br>"  # 显示原始名称 (如 ADLL)
                                            f"x: %{{x}}<br>y: %{{y:.3f}}<br>"
-                                           f"{neuron} - {get_stimulus_label(group_key, odor_information)}")
+                                           f"{cluster_info}{neuron} - {get_stimulus_label(group_key, odor_information)}")
                         ), row=row_idx, col=col_idx)
                 else:
                     # Mean ± SEM
@@ -494,11 +500,13 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                             dash_style = date_dash_map.get(date, 'solid')
                             date_legend_group = f"date_{date}"
                             
+                            cluster_info = f"[{stim_to_cluster[group_key]}] " if cluster_mode and group_key in stim_to_cluster else ""
+                            
                             fig.add_trace(go.Scatter(
                                 x=date_stats['rel_time'], y=date_stats['mean'],
                                 mode='lines', line=dict(color=highlight_color, width=2, dash=dash_style),
                                 showlegend=False, legendgroup=date_legend_group,
-                                hovertemplate=(f"{neuron} - {get_stimulus_label(group_key, odor_information)} ({date})<br>"
+                                hovertemplate=(f"{cluster_info}{neuron} - {get_stimulus_label(group_key, odor_information)} ({date})<br>"
                                                f"x: %{{x}}<br>y: %{{y:.3f}}<br>N: %{{customdata}}"),
                                 customdata=date_stats['count']
                             ), row=row_idx, col=col_idx)
@@ -512,11 +520,13 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                                 showlegend=False, legendgroup=date_legend_group, hoverinfo='none'
                             ), row=row_idx, col=col_idx)
                     else:
+                        cluster_info = f"[{stim_to_cluster[group_key]}] " if cluster_mode and group_key in stim_to_cluster else ""
+                        
                         fig.add_trace(go.Scatter(
                             x=stats_df['rel_time'], y=stats_df['mean'],
                             mode='lines', line=dict(color=highlight_color, width=2),
                             showlegend=False, legendgroup=group_key,
-                            hovertemplate=(f"{neuron} - {get_stimulus_label(group_key, odor_information)}<br>"
+                            hovertemplate=(f"{cluster_info}{neuron} - {get_stimulus_label(group_key, odor_information)}<br>"
                                            f"x: %{{x}}<br>y: %{{y:.3f}}<br>N: %{{customdata}}"),
                             customdata=stats_df['count']
                         ), row=row_idx, col=col_idx)
@@ -538,7 +548,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 if row_idx == len(plot_neurons):
                     fig.update_xaxes(title_text="", row=row_idx, col=col_idx, fixedrange=True)
 
-        # 9. Cluster Visualization (Separators & Labels)
+        # 9. Cluster Visualization (Separators)
         if cluster_mode and plot_groups:
             total_cols = len(plot_groups)
             current_col_idx = 0
@@ -553,21 +563,10 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 if current_col_idx > 0:
                     x_pos = current_col_idx / total_cols
                     fig.add_shape(
-                        type="line", x0=x_pos, x1=x_pos, y0=0, y1=1.02,
+                        type="line", x0=x_pos, x1=x_pos, y0=0, y1=1,
                         xref="paper", yref="paper",
-                        line=dict(color="rgba(0,0,0,0.2)", width=1.5, dash="dot")
+                        line=dict(color="rgba(0,0,0,0.3)", width=1.5, dash="dot")
                     )
-                
-                # Add Cluster Label
-                label_x = (current_col_idx + n_cols / 2) / total_cols
-                fig.add_annotation(
-                    text=f"<b>{cluster_name}</b>",
-                    xref="paper", yref="paper",
-                    x=label_x, y=1.08,
-                    showarrow=False, font=dict(size=12, color="#475569"),
-                    bgcolor="rgba(255,255,255,0.9)",
-                    bordercolor="#e2e8f0", borderwidth=1, borderpad=2
-                )
                 
                 current_col_idx += n_cols
 
@@ -583,7 +582,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         fig.update_layout(
             height=total_height, # Keep height explicitly so it scrolls vertically
             autosize=True,       # Self-adapting width
-            margin=dict(l=80, r=20, t=110, b=60),
+            margin=dict(l=80, r=20, t=80, b=60),
             template="plotly_white", hovermode="closest",
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
