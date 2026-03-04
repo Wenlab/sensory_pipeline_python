@@ -8,6 +8,7 @@ import tensorly as tl
 from tensorly.decomposition import parafac
 from tslearn.metrics import dtw
 from result_analysis.representation_clustering.static_cluster import compute_gap_statistic
+from result_analysis.representation_clustering.scaling_utils import calculate_adaptive_epsilon, apply_soft_scaling
 
 def cluster_latent_space(
     tensor_3d: np.ndarray, 
@@ -15,7 +16,10 @@ def cluster_latent_space(
     n_comp: int = 3, 
     n_iterations: int = 50,
     metric: str = 'dtw',
-    scoring: str = 'gap'
+    scoring: str = 'gap',
+    scaling: str = 'none', # 'none', 'standard', 'soft'
+    soft_scaling_eps: float = None,
+    return_factors: bool = False
 ) -> tuple:
     """
     Phase 3b: Unified latent clustering with PCA and robust TCA consensus logic.
@@ -34,9 +38,22 @@ def cluster_latent_space(
         pca = PCA(n_components=min(n_comp, S))
         components = pca.fit_transform(scaled_flattened)
     elif method == 'tca':
+        # 0. Apply Scaling to the 3D tensor before TCA
+        if scaling == 'standard':
+            # Flatten to S x (N*T), scale, then unflatten
+            scaler_t = StandardScaler()
+            tensor_3d_scaled = scaler_t.fit_transform(flattened).reshape(S, N, T)
+            effective_tensor = tensor_3d_scaled
+        elif scaling == 'soft':
+            if soft_scaling_eps is None:
+                soft_scaling_eps = calculate_adaptive_epsilon(tensor_3d)
+            effective_tensor = apply_soft_scaling(tensor_3d, soft_scaling_eps)
+        else:
+            effective_tensor = tensor_3d
+
         # 1. TCA (CP Decomposition)
         # Tensorly uses (S, N, T) format
-        weights, factors = parafac(tensor_3d, rank=n_comp, init='random', normalize_factors=True)
+        weights, factors = parafac(effective_tensor, rank=n_comp, init='random', normalize_factors=True)
         stimulus_factors = factors[0] # Shape: (S, rank)
         components = stimulus_factors
         
@@ -78,14 +95,20 @@ def cluster_latent_space(
             Z = linkage(condensed_consensus, method='ward')
             
         # Skip the standard linkage below since we already computed Z
-        return _perform_objective_scoring(Z, components, S, scoring)
+        results = _perform_objective_scoring(Z, components, S, scoring)
+        if return_factors:
+            return (*results, factors)
+        return results
 
     else:
         components = scaled_flattened
         
     # Agglomerative clustering on the latent components
     Z = linkage(components, method='ward')
-    return _perform_objective_scoring(Z, components, S, scoring)
+    results = _perform_objective_scoring(Z, components, S, scoring)
+    if return_factors:
+        return (*results, None)
+    return results
 
 def _perform_objective_scoring(Z, components, S, scoring) -> tuple:
     # Objective Scoring
