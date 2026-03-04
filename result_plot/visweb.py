@@ -1,21 +1,18 @@
-#%%
 # Import necessary libraries
-import dash
-from dash import dcc, html, Input, Output, State, callback
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from scipy import stats
 import sys
 import os
-import json
+
+import dash
+from dash import dcc, html, Input, Output, State
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 if __name__ == "__main__":
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.HDF5Toolkit import load_h5file
-from data_load.process_worm_data import transfer_dict2dataframe, transfer_dataframe2dict
+from data_load.process_worm_data import transfer_dict2dataframe
 
 #%%
 def get_stimulus_label(stimulus_code, odor_information=None):
@@ -73,87 +70,252 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
     # Initialize Dash app
     app = dash.Dash(__name__, suppress_callback_exceptions=True)
     
-    # Create app layout
-    app.layout = html.Div([
-        html.H1("Neuron Activity Visualization", style={'textAlign': 'center'}),
-        
-        html.Div([
-            html.Div([
-                html.Label("Select Neurons:"),
-                dcc.Checklist(
-                    id='neuron-selector',
-                    options=[{'label': neuron, 'value': neuron} for neuron in all_neurons],
-                    value=[all_neurons[0]] if all_neurons else [],
-                    labelStyle={'display': 'inline-block', 'margin-right': '10px'}
-                ),
-            ], style={'marginBottom': '15px'}),
-            
-            html.Div([
-                html.Label("Select Stimuli:"),
-                dcc.Checklist(
-                    id='stimuli-selector',
-                    options=[{'label': get_stimulus_label(s, odor_information), 'value': s} for s in all_stimuli],
-                    value=[all_stimuli[0]] if all_stimuli else [],
-                    labelStyle={'display': 'inline-block', 'margin-right': '10px'}
-                ),
-            ], style={'marginBottom': '15px'}),
-            
-            html.Div([
-                html.Label("Display:"),
-                dcc.RadioItems(
-                    id='display-type-selector',
-                    options=[
-                        {'label': 'Individual Trials', 'value': 'individual'},
-                        {'label': 'Mean ± SEM', 'value': 'mean_sem'}
-                    ],
-                    value='mean_sem',
-                    inline=True
-                ),
-            ], style={'marginBottom': '15px'}),
-            
-            html.Div([
-                dcc.Checklist(
-                    id='combine-options',
-                    options=[
-                        {'label': 'Combine compounds (different dilutions)', 'value': 'combine_compounds'},
-                        {'label': 'Combine neurons (L/R)', 'value': 'combine_neurons'},
-                        {'label': 'Show date difference', 'value': 'show_date_difference'}
-                    ],
-                    value=[],
-                    labelStyle={'display': 'block', 'marginBottom': '5px'}
-                ),
-            ], style={'marginBottom': '15px'}),
-            
-            html.Button('Update Plot', id='update-plot-button', 
-                       style={'marginTop': '10px', 'padding': '10px 20px'}),
-            html.Div([
-                html.Label("Save Path:", style={'margin-right': '10px'}),
-                dcc.Input(
-                    id='save-path-input',
-                    type='text',
-                    value='my_neuron_plot.html',
-                    style={'width': '300px', 'margin-right': '10px'}
-                ),
-                html.Button('Save Plot as HTML', id='save-html-button'),
-                html.Span(id='save-feedback', style={'margin-left': '10px'})
-            ], style={'marginTop': '15px'}),
-
-        ], style={'padding': '15px', 'backgroundColor': '#f8f9fa', 'borderRadius': '5px'}),
-        
-        # Add a fixed height container for the plot
-        html.Div([
-            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'}, responsive=True),
-        ], id='plot-container', style={'height': '800px', 'width': '100%'})
-    ])
+    label_style = {
+        'fontWeight': '600',
+        'color': '#475569',
+        'marginBottom': '8px',
+        'display': 'block',
+        'fontSize': '14px',
+        'textTransform': 'uppercase',
+        'letterSpacing': '0.5px'
+    }
     
-    def generate_response_figure(selected_neurons, selected_stimuli, display_type, combine_options):
+    # Create app layout inline styles
+    glass_card_style = {
+        'background': 'rgba(255, 255, 255, 0.7)',
+        'backdropFilter': 'blur(16px)',
+        'WebkitBackdropFilter': 'blur(16px)',
+        'borderRadius': '16px',
+        'border': '1px solid rgba(255, 255, 255, 0.8)',
+        'boxShadow': '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)',
+        'padding': '24px',
+        'marginBottom': '24px'
+    }
+    
+    btn_primary_style = {
+        'background': 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
+        'color': 'white',
+        'border': 'none',
+        'borderRadius': '8px',
+        'padding': '14px',
+        'fontWeight': '600',
+        'cursor': 'pointer',
+        'transition': 'all 0.2s ease',
+        'boxShadow': '0 4px 6px -1px rgba(79, 70, 229, 0.3)',
+        'width': '100%',
+        'fontSize': '15px',
+        'marginBottom': '20px'
+    }
+    
+    btn_secondary_style = {
+        'background': 'white',
+        'color': '#475569',
+        'border': '1px solid #cbd5e1',
+        'borderRadius': '8px',
+        'padding': '12px',
+        'fontWeight': '500',
+        'cursor': 'pointer',
+        'transition': 'all 0.2s ease',
+        'width': '100%'
+    }
+    
+    btn_secondary_small_style = {
+        'background': 'white',
+        'color': '#475569',
+        'border': '1px solid #cbd5e1',
+        'borderRadius': '6px',
+        'padding': '6px 10px',
+        'fontWeight': '500',
+        'cursor': 'pointer',
+        'transition': 'all 0.2s ease',
+        'fontSize': '12px',
+        'flex': '1'
+    }
+    
+    custom_input_style = {
+        'width': '100%',
+        'boxSizing': 'border-box',
+        'padding': '12px',
+        'borderRadius': '8px',
+        'border': '1px solid #e2e8f0',
+        'marginBottom': '12px',
+        'fontFamily': '"Inter", sans-serif',
+        'fontSize': '14px',
+        'transition': 'outline 0.2s'
+    }
+    
+    section_title_style = {
+        'marginTop': '0',
+        'fontSize': '18px',
+        'fontWeight': '700',
+        'color': '#0f172a',
+        'borderBottom': '2px solid #f1f5f9',
+        'paddingBottom': '12px',
+        'marginBottom': '20px'
+    }
+
+    app.layout = html.Div([
+        # Header
+        html.Div([
+            html.Div([
+                html.H1("Neuron Activity Dashboard", 
+                        style={'margin': '0', 'color': '#0f172a', 'fontSize': '32px', 'fontWeight': '800', 'letterSpacing': '-0.5px'}),
+                html.P("Explore and analyze neuronal responses to various stimuli", 
+                       style={'margin': '8px 0 0 0', 'color': '#64748b', 'fontSize': '16px'})
+            ]),
+            html.Button('Toggle Controls', id='toggle-sidebar-btn', style={**btn_secondary_small_style, 'flex': '0 0 auto', 'padding': '10px 16px', 'fontSize': '14px', 'fontWeight': '600'})
+        ], style={**glass_card_style, 'background': 'linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%)', 'padding': '32px', 'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}),
+        
+        html.Div([
+            # Sidebar / Controls
+            html.Div(id='sidebar-container', children=[
+                # Card 1: Data Selection (Shear Plate)
+                html.Div([
+                    html.H3("Data Selection", style=section_title_style),
+                    
+                    html.Label("Neurons", style=label_style),
+                    dcc.Dropdown(
+                        id='neuron-dropdown',
+                        options=[{'label': n, 'value': n} for n in all_neurons],
+                        value=[],
+                        multi=True,
+                        placeholder="Pick neurons to add...",
+                        style={'marginBottom': '10px'}
+                    ),
+                    html.Div([
+                        html.Button('All', id='btn-neurons-all', style=btn_secondary_small_style),
+                        html.Button('None', id='btn-neurons-none', style=btn_secondary_small_style),
+                    ], style={'display': 'flex', 'gap': '10px', 'marginBottom': '6px'}),
+                    dcc.Textarea(
+                        id='neuron-textarea',
+                        value=', '.join(all_neurons[:5]) if len(all_neurons) > 5 else ', '.join(all_neurons),
+                        style={**custom_input_style, 'height': '90px', 'resize': 'vertical'},
+                    ),
+                    
+                    html.Label("Stimuli", style={**label_style, 'marginTop': '12px'}),
+                    dcc.Dropdown(
+                        id='stimuli-dropdown',
+                        options=[{'label': get_stimulus_label(s, odor_information), 'value': s} for s in all_stimuli],
+                        value=[],
+                        multi=True,
+                        placeholder="Pick stimuli to add...",
+                        style={'marginBottom': '10px'}
+                    ),
+                    html.Div([
+                        html.Button('All', id='btn-stimuli-all', style=btn_secondary_small_style),
+                        html.Button('None', id='btn-stimuli-none', style=btn_secondary_small_style),
+                        html.Button('Toggle Labels', id='btn-stimuli-toggle', style=btn_secondary_small_style),
+                    ], style={'display': 'flex', 'gap': '10px', 'marginBottom': '6px'}),
+                    dcc.Textarea(
+                        id='stimuli-textarea',
+                        value=', '.join(all_stimuli),
+                        style={**custom_input_style, 'height': '90px', 'resize': 'vertical'},
+                    ),
+                    dcc.Store(id='stimuli-format-state', data='codes'),
+                ], style=glass_card_style),
+                
+                # Card 2: Display Settings
+                html.Div([
+                    html.H3("Display Settings", style=section_title_style),
+                    
+                    html.Label("Visualization Mode", style=label_style),
+                    dcc.RadioItems(
+                        id='display-type-selector',
+                        options=[
+                            {'label': ' Individual Trials', 'value': 'individual'},
+                            {'label': ' Mean ± SEM', 'value': 'mean_sem'}
+                        ],
+                        value='mean_sem',
+                        labelStyle={'display': 'flex', 'alignItems': 'center', 'margin': '10px 0', 'color': '#334155', 'fontWeight': '500'},
+                        inputStyle={'marginRight': '10px', 'transform': 'scale(1.2)'}
+                    ),
+                    
+                    html.Div(style={'height': '16px'}),
+                    
+                    html.Label("Grouping Options", style=label_style),
+                    dcc.Checklist(
+                        id='combine-options',
+                        options=[
+                            {'label': ' Combine L/R Neurons', 'value': 'combine_neurons'},
+                            {'label': ' Compare by Date', 'value': 'show_date_difference'},
+                            {'label': ' Cluster Mode', 'value': 'cluster_mode'}
+                        ],
+                        value=[],
+                        labelStyle={'display': 'flex', 'alignItems': 'center', 'margin': '10px 0', 'color': '#334155', 'fontWeight': '500'},
+                        inputStyle={'marginRight': '10px', 'transform': 'scale(1.2)'}
+                    ),
+                ], style=glass_card_style),
+                
+                # Card 3: Actions
+                html.Div([
+                    html.H3("Actions", style=section_title_style),
+                    
+                    html.Button('Update Plot', id='update-plot-button', style=btn_primary_style),
+                               
+                    html.Label("Export HTML Path", style=label_style),
+                    dcc.Input(
+                        id='save-path-input',
+                        type='text',
+                        value='my_neuron_plot.html',
+                        style=custom_input_style
+                    ),
+                    html.Button('Export Plot', id='save-html-button', style=btn_secondary_style),
+                    html.Div(id='save-feedback', style={'marginTop': '12px', 'fontSize': '14px', 'fontWeight': '500', 'color': '#059669', 'minHeight': '20px'})
+                ], style=glass_card_style),
+                
+            ], style={'width': '380px', 'minWidth': '380px', 'marginRight': '24px'}),
+            
+            # Main Plot Area
+            html.Div([
+                dcc.Loading(
+                    id="loading-plot",
+                    type="circle",
+                    color="#4f46e5",
+                    children=[
+                        html.Div([
+                            dcc.Graph(id='response-plot', style={'height': '100%', 'width': '100%'}, config={'displayModeBar': True, 'scrollZoom': False}),
+                        ], id='plot-container', style={'height': '800px', 'width': '100%', 'transition': 'height 0.3s ease'})
+                    ]
+                )
+            ], style={**glass_card_style, 'flex': '1', 'minWidth': '0', 'padding': '16px', 'display': 'flex', 'flexDirection': 'column'})
+            
+        ], style={'display': 'flex', 'flexDirection': 'row', 'alignItems': 'flex-start', 'flexWrap': 'wrap'})
+        
+    ], style={'padding': '32px', 'backgroundColor': '#f8fafc', 'minHeight': '100vh', 'fontFamily': "'Inter', sans-serif", 'backgroundImage': 'radial-gradient(circle at top right, #e0e7ff, transparent 30%), radial-gradient(circle at bottom left, #e2e8f0, transparent 40%)'})
+    
+    def generate_response_figure(selected_neurons_text, selected_stimuli_text, display_type, combine_options):
         """
         Generates the plotly figure using DataFrame operations.
         """
+        def parse_text(text):
+            if not text: return []
+            return [x.strip() for x in text.replace('\n', ',').split(',') if x.strip()]
+            
+        parsed_neurons = parse_text(selected_neurons_text)
+        parsed_stimuli = parse_text(selected_stimuli_text)
+        
+        # map stimuli labels back to codes
+        label_to_code = {get_stimulus_label(s, odor_information): s for s in all_stimuli}
+        selected_stimuli = []
+        for s in parsed_stimuli:
+            if s in all_stimuli:
+                selected_stimuli.append(s)
+            elif s in label_to_code:
+                selected_stimuli.append(label_to_code[s])
+                
+        selected_neurons = []
+        # Support combined neuron names in user text
+        mapping = create_neuron_mapping(df_all['neuron'].unique())
+        # Add original valid neurons
+        valid_neurons = set(df_all['neuron'].unique())
+        valid_combined = set(mapping.values())
+        for n in parsed_neurons:
+            if n in valid_neurons or n in valid_combined:
+                selected_neurons.append(n)
+                
         if not selected_neurons or not selected_stimuli:
             return go.Figure(), {'height': '800px', 'width': '100%'}
         
-        combine_compounds = 'combine_compounds' in combine_options
         combine_neurons = 'combine_neurons' in combine_options
         show_date_difference = 'show_date_difference' in combine_options
         
@@ -184,30 +346,21 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         # 3. Handle stimulus groups
         grouped_stimuli = {}
         compound_to_stimuli = {}
-        if combine_compounds:
-            for stim in selected_stimuli:
-                compound = stim.split('_')[0]
-                if compound not in grouped_stimuli:
-                    grouped_stimuli[compound] = []
-                    compound_to_stimuli[compound] = []
-                grouped_stimuli[compound].append(stim)
-                compound_to_stimuli[compound].append(stim)
-            dff['stimulus_group'] = dff['stimulus'].apply(lambda x: x.split('_')[0])
-        else:
-            for stim in selected_stimuli:
-                grouped_stimuli[stim] = [stim]
-                compound_to_stimuli[stim] = [stim]
-            dff['stimulus_group'] = dff['stimulus']
+        for stim in selected_stimuli:
+            grouped_stimuli[stim] = [stim]
+            compound_to_stimuli[stim] = [stim]
+        dff['stimulus_group'] = dff['stimulus']
         
         plot_groups = [g for g in grouped_stimuli.keys() if g in dff['stimulus_group'].unique()]
 
         # 4. Calculate plot dimensions
-        fixed_height_per_neuron = 200
-        total_height = fixed_height_per_neuron * len(plot_neurons)
-        container_height = max(800, total_height + 50)
-        base_width_per_stimulus = 400
-        min_total_width = 1400
-        total_width = max(min_total_width, len(plot_groups) * base_width_per_stimulus)
+        fixed_height_per_neuron = 150
+        total_height = max(500, fixed_height_per_neuron * len(plot_neurons) + 100)
+        container_height = total_height + 50
+        
+        # Determine total_width dynamically
+        # Let's not restrict the width to a hardcoded minimum, but rather rely on Plotly's autosize
+        # We can still provide a calculation if needed, but we'll remove it from update_layout
         
         # 5. Get date info and dash styles
         all_dates = sorted(dff['date'].unique().tolist())
@@ -237,12 +390,8 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
 
         # 7. Add legend entries
         for group_key, stim_list in compound_to_stimuli.items():
-            if combine_compounds:
-                color = stimulus_color_map.get(stim_list[0], 'gray')
-                legend_name = get_compound_name(group_key, odor_information)
-            else:
-                color = stimulus_color_map.get(group_key, 'gray')
-                legend_name = get_stimulus_label(group_key, odor_information)
+            color = stimulus_color_map.get(group_key, 'gray')
+            legend_name = get_stimulus_label(group_key, odor_information)
                 
             fig.add_trace(go.Scatter(
                 x=[None], y=[None], mode='lines',
@@ -277,10 +426,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 start_time_rel = 0
                 end_time_rel = first_row.get('end_time', 15) - first_row.get('start_time', 5)
                 
-                if combine_compounds:
-                    highlight_color = stimulus_color_map.get(grouped_stimuli[group_key][0], 'gray')
-                else:
-                    highlight_color = stimulus_color_map.get(group_key, 'gray')
+                highlight_color = stimulus_color_map.get(group_key, 'gray')
                 
                 fig.add_shape(
                     type="rect", x0=start_time_rel, x1=end_time_rel,
@@ -364,11 +510,11 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
 
                 # Axes formatting
                 fig.update_yaxes(range=y_range, row=row_idx, col=col_idx, 
-                                 showgrid=False, showticklabels=(col_idx == 1))
+                                 showgrid=False, showticklabels=(col_idx == 1), fixedrange=True)
                 fig.update_xaxes(showgrid=False, row=row_idx, col=col_idx,
-                                 showticklabels=(row_idx == len(plot_neurons)))
+                                 showticklabels=False, fixedrange=True)
                 if row_idx == len(plot_neurons):
-                    fig.update_xaxes(title_text="Time(s)", row=row_idx, col=col_idx)
+                    fig.update_xaxes(title_text="", row=row_idx, col=col_idx, fixedrange=True)
 
         # 9. Global legend adjustments
         if show_date_difference:
@@ -380,19 +526,127 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                 ), row=1, col=1)
         
         fig.update_layout(
-            height=total_height, width=total_width,
+            height=total_height, # Keep height explicitly so it scrolls vertically
+            autosize=True,       # Self-adapting width
             margin=dict(l=80, r=20, t=80, b=60),
             template="plotly_white", hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, title="Stimulus / Date")
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(family="'Inter', sans-serif", color="#334155", size=13),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, 
+                title="Stimulus / Date", 
+                bgcolor="rgba(0,0,0,0)",
+                bordercolor="rgba(0,0,0,0)",
+                borderwidth=0,
+                font=dict(size=12)
+            )
         )
         return fig, {'height': f'{container_height}px', 'width': '100%'}
+
+    @app.callback(
+        Output('sidebar-container', 'style'),
+        Input('toggle-sidebar-btn', 'n_clicks'),
+        State('sidebar-container', 'style'),
+        prevent_initial_call=True
+    )
+    def toggle_sidebar(n_clicks, current_style):
+        if not current_style:
+            current_style = {'width': '380px', 'minWidth': '380px', 'marginRight': '24px'}
+            
+        if current_style.get('display') == 'none':
+            current_style['display'] = 'block'
+        else:
+            current_style['display'] = 'none'
+        return current_style
+
+    @app.callback(
+        [Output('neuron-textarea', 'value'),
+         Output('neuron-dropdown', 'value')],
+        [Input('btn-neurons-all', 'n_clicks'),
+         Input('btn-neurons-none', 'n_clicks'),
+         Input('neuron-dropdown', 'value')],
+        State('neuron-textarea', 'value'),
+        prevent_initial_call=True
+    )
+    def update_neurons_textarea(all_clicks, none_clicks, dropdown_val, current_val):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return current_val, []
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if button_id == 'btn-neurons-all':
+            return ', '.join(all_neurons), []
+        elif button_id == 'btn-neurons-none':
+            return '', []
+        elif button_id == 'neuron-dropdown' and dropdown_val:
+            # Append dropdown selections to current textarea
+            existing = [x.strip() for x in current_val.replace('\n', ',').split(',') if x.strip()] if current_val else []
+            for v in dropdown_val:
+                if v not in existing:
+                    existing.append(v)
+            return ', '.join(existing), []
+        return current_val, []
+
+    @app.callback(
+        [Output('stimuli-textarea', 'value'), Output('stimuli-format-state', 'data'),
+         Output('stimuli-dropdown', 'value')],
+        [Input('btn-stimuli-all', 'n_clicks'),
+         Input('btn-stimuli-none', 'n_clicks'),
+         Input('btn-stimuli-toggle', 'n_clicks'),
+         Input('stimuli-dropdown', 'value')],
+        [State('stimuli-textarea', 'value'),
+         State('stimuli-format-state', 'data')],
+        prevent_initial_call=True
+    )
+    def update_stimuli_textarea(all_clicks, none_clicks, toggle_clicks, dropdown_val, current_val, format_state):
+        ctx = dash.callback_context
+        if not ctx.triggered:
+            return current_val, format_state, []
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        if button_id == 'btn-stimuli-all':
+            items = all_stimuli
+            if format_state == 'labels':
+                items = [get_stimulus_label(s, odor_information) for s in items]
+            return ', '.join(items), format_state, []
+        elif button_id == 'btn-stimuli-none':
+            return '', format_state, []
+        elif button_id == 'stimuli-dropdown' and dropdown_val:
+            # Append dropdown selections to current textarea
+            existing = [x.strip() for x in current_val.replace('\n', ',').split(',') if x.strip()] if current_val else []
+            for v in dropdown_val:
+                display_v = get_stimulus_label(v, odor_information) if format_state == 'labels' else v
+                if display_v not in existing:
+                    existing.append(display_v)
+            return ', '.join(existing), format_state, []
+        elif button_id == 'btn-stimuli-toggle':
+            items = [x.strip() for x in current_val.replace('\n', ',').split(',') if x.strip()]
+            new_state = 'labels' if format_state == 'codes' else 'codes'
+            new_items = []
+            
+            label_to_code = {get_stimulus_label(s, odor_information): s for s in all_stimuli}
+            
+            for item in items:
+                if new_state == 'labels':
+                    if item in all_stimuli:
+                        new_items.append(get_stimulus_label(item, odor_information))
+                    else:
+                        new_items.append(item)
+                else:
+                    if item in label_to_code:
+                        new_items.append(label_to_code[item])
+                    else:
+                        new_items.append(item)
+            return ', '.join(new_items), new_state, []
+            
+        return current_val, format_state, []
 
     @app.callback(
         [Output('response-plot', 'figure'),
          Output('plot-container', 'style')],
         Input('update-plot-button', 'n_clicks'),
-        [State('neuron-selector', 'value'),
-         State('stimuli-selector', 'value'),
+        [State('neuron-textarea', 'value'),
+         State('stimuli-textarea', 'value'),
          State('display-type-selector', 'value'),
          State('combine-options', 'value')]
     )
@@ -405,9 +659,9 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
     @app.callback(
         Output('save-feedback', 'children'),
         Input('save-html-button', 'n_clicks'),
-        [State('save-path-input', 'value'),      # 获取自定义路径
-         State('neuron-selector', 'value'),      # 获取所有绘图选项
-         State('stimuli-selector', 'value'),
+        [State('save-path-input', 'value'),
+         State('neuron-textarea', 'value'),
+         State('stimuli-textarea', 'value'),
          State('display-type-selector', 'value'),
          State('combine-options', 'value')]
     )
@@ -588,15 +842,3 @@ def run_neuron_dashboard(neuron_segments_dict, odor_information=None, stimulus_c
     app.run(host="0.0.0.0", port= port, debug=True, jupyter_mode='external')
 
     return app
-
-if __name__ == "__main__":
-    # Load data and odor information
-    # neuron_segments_dict = load_h5file(data_path, root_name='neuron_segments_dict')
-    neuron_segments_dict = load_h5file(r"./data/bacteria/20260121_merged_bacteria_segments.h5", root_name='neuron_segments')
-    # with open(info_path, 'r', encoding='utf-8') as f:
-    #     odor_information = json.load(f)
-    
-    
-    # Start the visualization web app
-    app = create_neuronal_dashboard(neuron_segments_dict, odor_information=None)
-    app.run(host="0.0.0.0", port= 8056)
