@@ -292,17 +292,39 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
             return [x.strip() for x in text.replace('\n', ',').split(',') if x.strip()]
             
         parsed_neurons = parse_text(selected_neurons_text)
-        parsed_stimuli = parse_text(selected_stimuli_text)
         
         # map stimuli labels back to codes
         label_to_code = {get_stimulus_label(s, odor_information): s for s in all_stimuli}
         selected_stimuli = []
-        for s in parsed_stimuli:
-            if s in all_stimuli:
-                selected_stimuli.append(s)
-            elif s in label_to_code:
-                selected_stimuli.append(label_to_code[s])
-                
+        cluster_stimuli_map = {} # cluster_name -> [stimulus_codes]
+        cluster_names_ordered = []
+        
+        cluster_mode = 'cluster_mode' in combine_options
+        if cluster_mode:
+            import re
+            # Find all Cluster definitions: Cluster X: stim1, stim2...
+            matches = re.findall(r"(Cluster\s+\d+):\s+([\w\s,]+)", selected_stimuli_text)
+            for cluster_name, stim_str in matches:
+                cluster_names_ordered.append(cluster_name)
+                cluster_stimuli_map[cluster_name] = []
+                stim_items = parse_text(stim_str)
+                for item in stim_items:
+                    code = item
+                    if item in label_to_code:
+                        code = label_to_code[item]
+                    
+                    if code in all_stimuli:
+                        cluster_stimuli_map[cluster_name].append(code)
+                        if code not in selected_stimuli:
+                            selected_stimuli.append(code)
+        else:
+            parsed_stimuli = parse_text(selected_stimuli_text)
+            for s in parsed_stimuli:
+                if s in all_stimuli:
+                    selected_stimuli.append(s)
+                elif s in label_to_code:
+                    selected_stimuli.append(label_to_code[s])
+                    
         selected_neurons = []
         # Support combined neuron names in user text
         mapping = create_neuron_mapping(df_all['neuron'].unique())
