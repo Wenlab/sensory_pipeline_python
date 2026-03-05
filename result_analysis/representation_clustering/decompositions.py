@@ -142,6 +142,7 @@ def apply_dpca(
     tensor_3d: np.ndarray,
     tensor_trial: np.ndarray = None,
     n_comp: int = 3,
+    regularizer: float = 1e-4,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """
     Apply Demixed PCA (dPCA) and extract stimulus marginalization components.
@@ -156,11 +157,17 @@ def apply_dpca(
     When `tensor_trial=None`, falls back to mean data (the 3D tensor), fitting
     dPCA without a trial dimension.
 
+    Note: `regularizer='auto'` is NOT used because it requires cross-validation
+    that fails with NaN-padded trial data. A fixed regularizer (default 1e-4)
+    is used instead for robustness across both mean and trial fits.
+
     Args:
         tensor_3d:    Mean tensor of shape (S, N, T).
         tensor_trial: Optional trial tensor of shape (S, N, T, max_trials) with NaN
                       padding. Preferred over tensor_3d when available.
         n_comp:       Number of dPCA components per marginalization.
+        regularizer:  Ridge regularization strength (default 1e-4). Increase if
+                      dPCA is numerically unstable.
 
     Returns:
         Z:          Linkage matrix of shape (S-1, 4) based on Ward clustering of
@@ -169,15 +176,16 @@ def apply_dpca(
         factors:    Dict of dPCA encoder arrays, keyed by marginalization label
                     (e.g. 's', 't', 'st'). Callers can inspect full decomposition.
     """
-    from dPCA import dPCA as dPCA_lib
+    from dPCA.dPCA import dPCA as dPCA_lib
 
     S, N, T = tensor_3d.shape
 
     # --- Build the dPCA-format mean array: (N, S, T) ---
     mean_data = tensor_3d.transpose(1, 0, 2)  # (N, S, T)
 
-    dpca = dPCA_lib(labels='st', n_components=n_comp, regularizer='auto')
-    dpca.protect = ['t']  # Protect time — don't mix time and stimulus marginals
+    # Use fixed regularizer — 'auto' requires cross-val that breaks with NaN data
+    dpca = dPCA_lib(labels='st', n_components=n_comp, regularizer=regularizer)
+    dpca.protect = ['t']  # Protect time axis during data shuffling
 
     if tensor_trial is not None:
         # trial_data shape: (S, N, T, max_trials) -> (N, S, T, max_trials)
@@ -187,13 +195,12 @@ def apply_dpca(
         dpca.fit(mean_data)
 
     # --- Extract stimulus components ---
-    # dpca.transform returns a dict: {label: (n_comp, N, S, T)}
-    # We take the stimulus ('s') marginalization and collapse neuron + time axes
-    # to produce a (S, n_comp) stimulus embedding.
+    # dpca.transform returns a dict: {label: (n_comp, S, T)}
+    # (The neuron axis has already been projected out by the decoder)
+    # Collapse the time axis to get a per-stimulus embedding: (n_comp, S) -> (S, n_comp)
     transformed = dpca.transform(mean_data)
-    stim_components_raw = transformed['s']  # shape: (n_comp, N, S, T)
-    # Collapse neuron (axis 1) and time (axis 3) by mean -> (n_comp, S)
-    stim_embedding = stim_components_raw.mean(axis=(1, 3)).T  # -> (S, n_comp)
+    stim_components_raw = transformed['s']   # shape: (n_comp, S, T)
+    stim_embedding = stim_components_raw.mean(axis=-1).T  # (n_comp, S).T -> (S, n_comp)
 
     # --- Ward Linkage ---
     Z = linkage(stim_embedding, method='ward')
