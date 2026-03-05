@@ -100,8 +100,9 @@ def cluster_latent_space(
 
     if return_factors:
         if method == 'tca':
-            # Backward-compatible: return stimulus factor array directly (S, n_comp)
-            return (*results, tca_factor_list[0])
+            # Return the full list [S_factors, N_factors, T_factors] so callers
+            # can access neuron and time factors too (e.g., for visualization).
+            return (*results, tca_factor_list)
         return (*results, factors)
 
     return results
