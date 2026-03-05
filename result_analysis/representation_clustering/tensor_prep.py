@@ -90,7 +90,8 @@ def prepare_chemo_trial_tensor(
 
     Args:
         df: Long-format DataFrame with columns:
-            'neuron', 'stimulus', 'time_point', 'delta_F_over_F0', 'worm_key'
+            'neuron', 'stimulus', 'time_point', 'delta_F_over_F0', 'worm_key',
+            'segment_index', 'date'
         combine_lr: If True, apply the same L/R neuron merging as prepare_chemo_tensor.
 
     Returns:
@@ -120,11 +121,20 @@ def prepare_chemo_trial_tensor(
         if mapping:
             df_processed['neuron'] = df_processed['neuron'].replace(mapping)
 
-    # Group by (stimulus, neuron, time_point, worm_key) -> mean within that trial
-    # (handles L/R merging where two rows map to same worm_key)
+    # Create a unique trial identifier combining worm_key, segment_index, and date
+    # This ensures trials are uniquely identified even if the same worm is recorded 
+    # across different dates or segments.
+    df_processed['trial_id'] = (
+        df_processed['worm_key'].astype(str) + "_" + 
+        df_processed['segment_index'].astype(str) + "_" + 
+        df_processed['date'].astype(str)
+    )
+
+    # Group by (stimulus, neuron, time_point, trial_id) -> mean within that trial
+    # (handles L/R merging where two rows might map to same trial)
     trial_df = (
         df_processed
-        .groupby(['stimulus', 'neuron', 'time_point', 'worm_key'])['delta_F_over_F0']
+        .groupby(['stimulus', 'neuron', 'time_point', 'trial_id'])['delta_F_over_F0']
         .mean()
         .reset_index()
     )
@@ -136,7 +146,7 @@ def prepare_chemo_trial_tensor(
 
     # Find max number of trials across all (stimulus, neuron) combinations
     trials_per_cond = (
-        trial_df.groupby(['stimulus', 'neuron'])['worm_key']
+        trial_df.groupby(['stimulus', 'neuron'])['trial_id']
         .nunique()
     )
     max_trials = int(trials_per_cond.max()) if len(trials_per_cond) > 0 else 1
@@ -147,7 +157,7 @@ def prepare_chemo_trial_tensor(
     neur_map = {n: i for i, n in enumerate(neurons)}
     time_map = {t: i for i, t in enumerate(time_pts)}
 
-    for (stim, neur, worm_key), grp in trial_df.groupby(['stimulus', 'neuron', 'worm_key']):
+    for (stim, neur, t_id), grp in trial_df.groupby(['stimulus', 'neuron', 'trial_id']):
         s_idx = stim_map[stim]
         n_idx = neur_map[neur]
         grp_sorted = grp.sort_values('time_point')
