@@ -205,7 +205,12 @@ def apply_dpca(
     # --- Ward Linkage ---
     Z = linkage(stim_embedding, method='ward')
 
-    # factors = full dPCA encoder dict for downstream inspection
-    factors = {'s': dpca.D.get('s'), 't': dpca.D.get('t'), 'st': dpca.D.get('st')}
+    # --- Factors for downstream inspection and visualization ---
+    # We include decoders (D), full trajectories (transformed), and variance explained.
+    factors = {
+        'decoders': {'s': dpca.D.get('s'), 't': dpca.D.get('t'), 'st': dpca.D.get('st')},
+        'transformed': transformed,
+        'variance_explained': dpca.explained_variance_ratio_,
+    }
 
     return Z, stim_embedding, factors
