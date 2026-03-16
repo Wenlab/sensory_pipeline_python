@@ -141,8 +141,10 @@ def apply_tca(
 def apply_dpca(
     tensor_3d: np.ndarray,
     tensor_trial: np.ndarray = None,
-    n_comp: int = 3,
+    n_comp: int = 13,
     regularizer: float = 1e-4,
+    use_reconstruction: bool = True,
+    var_cum_threshold: float = 0.9,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """
     Apply Demixed PCA (dPCA) and extract stimulus marginalization components.
@@ -195,22 +197,75 @@ def apply_dpca(
         dpca.fit(mean_data)
 
     # --- Extract stimulus components ---
-    # dpca.transform returns a dict: {label: (n_comp, S, T)}
-    # (The neuron axis has already been projected out by the decoder)
-    # Collapse the time axis to get a per-stimulus embedding: (n_comp, S) -> (S, n_comp)
     transformed = dpca.transform(mean_data)
-    stim_components_raw = transformed['s']   # shape: (n_comp, S, T)
-    stim_embedding = stim_components_raw.mean(axis=-1).T  # (n_comp, S).T -> (S, n_comp)
+    
+    if use_reconstruction:
+        # Reconstruct (N, S, T) using encoders (P) and transformed data (Z)
+        recon = np.zeros_like(mean_data)
+        
+        var_dict = dpca.explained_variance_ratio_
+        kept_components = {'s': [], 'st': []}
+        
+        for label in ['s', 'st']:
+            if label not in var_dict: continue
+            
+            # Find how many components are needed to hit the cumulative variance threshold
+            # Normalized by the total variance explained by this marginalization alone
+            marginal_vars = var_dict[label][:n_comp]
+            total_margin_var = np.sum(marginal_vars)
+            
+            if total_margin_var > 0:
+                cum_var = np.cumsum(marginal_vars) / total_margin_var
+                keep_idx = np.where(cum_var >= var_cum_threshold)[0]
+                n_keep = keep_idx[0] + 1 if len(keep_idx) > 0 else n_comp
+            else:
+                n_keep = 0
+                
+            kept_components[label] = list(range(n_keep))
+            
+            for i in range(n_keep):
+                p_vec = dpca.P[label][:, i]          # encoder shape: (N,)
+                z_mat = transformed[label][i]        # latent shape: (S, T)
+                # Outer product addition: recon += P_i * Z_i
+                recon += np.einsum('i,jk->ijk', p_vec, z_mat)
+        
+        # Transform reconstructed shape to (S, N, T)
+        X_recon = recon.transpose(1, 0, 2)
+        
+        # Reshape to scale each neuron across all stimuli and timepoints
+        X_recon_reshaped = X_recon.transpose(0, 2, 1).reshape(S * T, N)
+        X_scaled = StandardScaler().fit_transform(X_recon_reshaped)
+        
+        # Reshape back to (S, N, T) and then flatten for linkage
+        X_recon = X_scaled.reshape(S, T, N).transpose(0, 2, 1)
+        stim_embedding = X_recon.reshape(S, N * T)
+        
+        factors = {
+            'dpca_model':          dpca,
+            'reconstructed':       X_recon,
+            'kept_components':     kept_components,
+            'variance_explained':  var_dict,
+            'decoders':            dpca.D,
+            'encoders':            dpca.P,
+            'transformed':         transformed,
+        }
+    else:
+        stim_components_raw = transformed['s']
+        stim_embedding = stim_components_raw.mean(axis=-1).T
+        factors = {
+            'dpca_model':          dpca,
+            'reconstructed':       None,
+            'kept_components':     {'s': list(range(n_comp)), 'st': []},
+            'variance_explained':  dpca.explained_variance_ratio_,
+            'decoders':            dpca.D,
+            'encoders':            dpca.P,
+            'transformed':         transformed,
+        }
 
     # --- Ward Linkage ---
     Z = linkage(stim_embedding, method='ward')
-
-    # --- Factors for downstream inspection and visualization ---
-    # We include decoders (D), full trajectories (transformed), and variance explained.
-    factors = {
-        'decoders': {'s': dpca.D.get('s'), 't': dpca.D.get('t'), 'st': dpca.D.get('st')},
-        'transformed': transformed,
-        'variance_explained': dpca.explained_variance_ratio_,
-    }
-
-    return Z, stim_embedding, factors
+    
+    # Generate 3D components for downstream visualization compatibility
+    components_for_plot = PCA(n_components=min(3, S)).fit_transform(stim_embedding) if use_reconstruction else stim_embedding
+    
+    return Z, components_for_plot, factors
