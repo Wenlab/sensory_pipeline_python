@@ -2,11 +2,17 @@ import numpy as np
 import pandas as pd
 
 
-def prepare_chemo_tensor(df: pd.DataFrame, combine_lr: bool = True) -> tuple[np.ndarray, np.ndarray, list, list, dict, list, tuple, tuple]:
+def prepare_chemo_tensor(df: pd.DataFrame, combine_lr: bool = True, time_window: tuple[float, float] = None) -> tuple[np.ndarray, np.ndarray, list, list, dict, list, tuple, tuple]:
     """
     Step 1.1 - 1.3: Clean, average, and reshape into 2D and 3D tensors.
     """
     df_processed = df.copy()
+
+    if time_window is not None:
+        df_processed = df_processed[
+            (df_processed['time_point'] >= time_window[0]) & 
+            (df_processed['time_point'] <= time_window[1])
+        ]
 
     if combine_lr:
         neuron_names = df_processed['neuron'].unique()
@@ -79,7 +85,8 @@ def prepare_chemo_tensor(df: pd.DataFrame, combine_lr: bool = True) -> tuple[np.
 
 def prepare_chemo_trial_tensor(
     df: pd.DataFrame,
-    combine_lr: bool = True
+    combine_lr: bool = True,
+    time_window: tuple[float, float] = None
 ) -> tuple[np.ndarray, list, list]:
     """
     Builds a 4D trial-level tensor of shape (S, N, T, max_trials) with NaN padding.
@@ -93,6 +100,7 @@ def prepare_chemo_trial_tensor(
             'neuron', 'stimulus', 'time_point', 'delta_F_over_F0', 'worm_key',
             'segment_index', 'date'
         combine_lr: If True, apply the same L/R neuron merging as prepare_chemo_tensor.
+        time_window: Optional tuple of (start_time, end_time) to filter data.
 
     Returns:
         trial_tensor: np.ndarray of shape (S, N, T, max_trials), dtype float64
@@ -100,6 +108,12 @@ def prepare_chemo_trial_tensor(
         neurons: sorted list of neuron labels
     """
     df_processed = df.copy()
+
+    if time_window is not None:
+        df_processed = df_processed[
+            (df_processed['time_point'] >= time_window[0]) & 
+            (df_processed['time_point'] <= time_window[1])
+        ]
 
     if combine_lr:
         neuron_names = df_processed['neuron'].unique()
