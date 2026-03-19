@@ -77,3 +77,4 @@ dmypy.json
 /usage
 /results
 /data
+.worktrees/
