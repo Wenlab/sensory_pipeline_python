@@ -67,7 +67,6 @@ dmypy.json
 # numpy
 *.npy
 *.npz
-
 # Temporary files
 *.swp
 *~
@@ -76,3 +75,5 @@ dmypy.json
 !.pixi/config.toml
 
 /usage
+/results
+/data

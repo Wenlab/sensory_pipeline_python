@@ -18,8 +18,8 @@ TARGET_RANK = 3  # The rank you want to use for the final cluster comparison
 MAX_SWEEP_RANK = 10
 N_ITERATIONS = 20  # Consensus iterations for TCA
 N_STABILITY_REPS = 5 # Repetitions to assess stability
-DATA_PATH = "tests/cluster/20260226_useful_data.parquet"
-OUTPUT_BASE = "tests/cluster"
+DATA_PATH = "data/processed/20260310_name_aligned_data.parquet"
+OUTPUT_BASE = "results"
 
 def run_research_driver():
     tl.set_backend('numpy')
