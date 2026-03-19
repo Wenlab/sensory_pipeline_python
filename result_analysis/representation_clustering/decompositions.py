@@ -24,10 +24,40 @@ from result_analysis.representation_clustering.scaling_utils import (
 )
 
 
+def standardize_tensor(
+    tensor_3d: np.ndarray,
+    orientation: str = 'stimuluswise',
+) -> np.ndarray:
+    """
+    Standardize a tensor while preserving its (S, N, T) shape.
+
+    Args:
+        tensor_3d: Tensor with shape (S, N, T).
+        orientation:
+            - 'stimuluswise': flatten to (S, N*T), scale columns, reshape back.
+            - 'neuronwise': reshape to (S*T, N), scale columns, reshape back.
+    """
+    S, N, T = tensor_3d.shape
+
+    if orientation == 'stimuluswise':
+        flattened = tensor_3d.reshape(S, N * T)
+        return StandardScaler().fit_transform(flattened).reshape(S, N, T)
+
+    if orientation == 'neuronwise':
+        flattened = tensor_3d.transpose(0, 2, 1).reshape(S * T, N)
+        scaled = StandardScaler().fit_transform(flattened)
+        return scaled.reshape(S, T, N).transpose(0, 2, 1)
+
+    raise ValueError(
+        f"Unknown scaling orientation '{orientation}'. Supported: 'stimuluswise', 'neuronwise'."
+    )
+
+
 def apply_pca(
     tensor_3d: np.ndarray,
     n_comp: int = 3,
     scaling: str = 'standard',
+    scaling_orientation: str = 'stimuluswise',
 ) -> tuple[np.ndarray, np.ndarray, None]:
     """
     Flatten the 3D tensor, scale, apply PCA, and compute Ward linkage.
@@ -44,10 +74,12 @@ def apply_pca(
         factors:    Always None for PCA.
     """
     S, N, T = tensor_3d.shape
-    flattened = tensor_3d.reshape(S, N * T)
+    effective_tensor = tensor_3d
 
     if scaling == 'standard':
-        flattened = StandardScaler().fit_transform(flattened)
+        effective_tensor = standardize_tensor(tensor_3d, orientation=scaling_orientation)
+
+    flattened = effective_tensor.reshape(S, N * T)
 
     pca = PCA(n_components=min(n_comp, S))
     components = pca.fit_transform(flattened)
@@ -63,6 +95,7 @@ def apply_tca(
     metric: str = 'dtw',
     scaling: str = 'none',
     soft_scaling_eps: float = None,
+    scaling_orientation: str = 'stimuluswise',
 ) -> tuple[np.ndarray, np.ndarray, list]:
     """
     Apply CP (PARAFAC) decomposition and build consensus clustering linkage.
@@ -84,8 +117,7 @@ def apply_tca(
 
     # --- Scaling ---
     if scaling == 'standard':
-        flat = tensor_3d.reshape(S, N * T)
-        effective_tensor = StandardScaler().fit_transform(flat).reshape(S, N, T)
+        effective_tensor = standardize_tensor(tensor_3d, orientation=scaling_orientation)
     elif scaling == 'soft':
         if soft_scaling_eps is None:
             soft_scaling_eps = calculate_adaptive_epsilon(tensor_3d)
@@ -145,6 +177,7 @@ def apply_dpca(
     regularizer: float = 1e-4,
     use_reconstruction: bool = True,
     var_cum_threshold: float = 0.9,
+    scaling_orientation: str = 'neuronwise',
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """
     Apply Demixed PCA (dPCA) and extract stimulus marginalization components.
@@ -232,12 +265,8 @@ def apply_dpca(
         # Transform reconstructed shape to (S, N, T)
         X_recon = recon.transpose(1, 0, 2)
         
-        # Reshape to scale each neuron across all stimuli and timepoints
-        X_recon_reshaped = X_recon.transpose(0, 2, 1).reshape(S * T, N)
-        X_scaled = StandardScaler().fit_transform(X_recon_reshaped)
-        
-        # Reshape back to (S, N, T) and then flatten for linkage
-        X_recon = X_scaled.reshape(S, T, N).transpose(0, 2, 1)
+        # Apply configurable scaling while preserving the reconstructed shape.
+        X_recon = standardize_tensor(X_recon, orientation=scaling_orientation)
         stim_embedding = X_recon.reshape(S, N * T)
         
         factors = {

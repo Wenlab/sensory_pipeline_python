@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
+from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
@@ -57,7 +58,7 @@ def load_metabolism_data(file_path: str, sample_list: list = None):
     Loads and prepares the metabolism Excel file.
     Optionally filters by a list of bacteria names.
     """
-    df = pd.read_excel(file_path)
+    df = pd.read_excel(Path(file_path))
     
     # Set the first column as index (assuming it contains bacteria names)
     if 'Unnamed: 0' in df.columns:
@@ -77,6 +78,42 @@ def load_metabolism_data(file_path: str, sample_list: list = None):
 
     print(f"Data shape: {df.shape[0]} bacteria x {df.shape[1]} compounds.")
     return df
+
+
+def build_reference_clustering(
+    df: pd.DataFrame,
+    n_comp: int = 3,
+    scoring: str = 'gap',
+) -> dict:
+    """
+    Build a structured clustering payload for downstream neural-method benchmarking.
+
+    Args:
+        df: Metabolism matrix indexed by sample name.
+        n_comp: Number of PCA components to retain for the embedding.
+        scoring: Cluster count selection rule. Supports 'gap' and 'silhouette'.
+
+    Returns:
+        Dict containing ordered sample names, labels, selected cluster count,
+        PCA embedding, linkage matrix, and model metadata.
+    """
+    if len(df) < 2:
+        raise ValueError("At least 2 samples are required for clustering analysis.")
+
+    pca_df, Z, pca_model = perform_pca_clustering(df, n_comp=n_comp, scoring=scoring)
+    component_cols = [col for col in pca_df.columns if col.startswith('PC')]
+    embedding = pca_df.set_index('Bacteria')[component_cols]
+    labels = pca_df['Cluster'].tolist()
+
+    return {
+        'samples': pca_df['Bacteria'].tolist(),
+        'labels': labels,
+        'n_clusters': len(set(labels)),
+        'embedding': embedding,
+        'linkage': Z,
+        'pca_model': pca_model,
+        'scoring': scoring,
+    }
 
 def perform_pca_clustering(df: pd.DataFrame, n_comp: int = 3, scoring: str = 'gap'):
     """

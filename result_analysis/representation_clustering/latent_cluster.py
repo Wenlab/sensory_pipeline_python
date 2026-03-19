@@ -32,7 +32,10 @@ def cluster_latent_space(
     metric: str = 'dtw',
     scoring: str = 'gap',
     scaling: str = 'none',
+    scaling_orientation: str = 'stimuluswise',
     soft_scaling_eps: float = None,
+    use_reconstruction: bool = True,
+    var_cum_threshold: float = 0.9,
     return_factors: bool = False,
 ) -> tuple:
     """
@@ -73,7 +76,10 @@ def cluster_latent_space(
     # --- Dispatch ---
     if method == 'pca':
         Z, components, factors = apply_pca(
-            tensor_3d, n_comp=n_comp, scaling=scaling
+            tensor_3d,
+            n_comp=n_comp,
+            scaling=scaling,
+            scaling_orientation=scaling_orientation,
         )
     elif method == 'tca':
         Z, components, factors = apply_tca(
@@ -82,13 +88,19 @@ def cluster_latent_space(
             n_iterations=n_iterations,
             metric=metric,
             scaling=scaling,
+            scaling_orientation=scaling_orientation,
             soft_scaling_eps=soft_scaling_eps,
         )
         # Preserve the full CP factors list for return_factors
         tca_factor_list = factors
     elif method == 'dpca':
         Z, components, factors = apply_dpca(
-            tensor_3d, tensor_trial=tensor_trial, n_comp=n_comp
+            tensor_3d,
+            tensor_trial=tensor_trial,
+            n_comp=n_comp,
+            use_reconstruction=use_reconstruction,
+            var_cum_threshold=var_cum_threshold,
+            scaling_orientation=scaling_orientation,
         )
     else:
         raise ValueError(
