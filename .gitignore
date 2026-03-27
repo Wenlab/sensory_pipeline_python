@@ -76,3 +76,4 @@ dmypy.json
 !.pixi/config.toml
 
 /usage
+/results
