@@ -243,11 +243,27 @@ def run_bacteria_analysis(file_path: str, sample_list: list = None, scoring: str
     
     return pca_df
 
-def launch_interactive_dashboard(file_path: str, sample_list: list = None, scoring: str = 'gap'):
-    """Launches the Dash-based interactive PCA dashboard."""
+def launch_interactive_dashboard(file_path: str, sample_list: list = None):
+    """Launches the Dash-based interactive PCA dashboard without clustering overhead."""
     df = load_metabolism_data(file_path, sample_list=sample_list)
-    pca_df, Z, pca_model = perform_pca_clustering(df, scoring=scoring)
     
+    # 1. Pure PCA Projection up to 20 dimensions
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(df)
+    
+    actual_n_comp = min(20, len(df), df.shape[1])
+    pca_model = PCA(n_components=actual_n_comp)
+    pca_results = pca_model.fit_transform(scaled_data)
+    
+    col_names = [f'PC{i+1}' for i in range(actual_n_comp)]
+    pca_df = pd.DataFrame(data=pca_results, columns=col_names, index=df.index)
+    pca_df.index.name = 'Bacteria'
+    pca_df = pca_df.reset_index()
+    
+    # 2. Launch Dashboard
     try:
         from result_plot.vis_metabolism_pca import create_metabolism_dashboard
     except ImportError:
@@ -257,7 +273,7 @@ def launch_interactive_dashboard(file_path: str, sample_list: list = None, scori
         
     app = create_metabolism_dashboard(pca_df, pca_model)
     print("Launching Dash server... (Press Ctrl+C to stop)")
-    app.run_server(debug=True)
+    app.run(debug=True)
 
 # --- Execution ---
 if __name__ == "__main__":
