@@ -82,4 +82,35 @@ def create_metabolism_dashboard(pca_df: pd.DataFrame, pca_model):
         ]
     )
     
+    @app.callback(
+        dash.Output('scatter-3d-plot', 'figure'),
+        [dash.Input('search-input', 'value')]
+    )
+    def update_scatter(search_value):
+        # We process opacity mapping sequentially over px traces 
+        fig = px.scatter_3d(
+            pca_df,
+            x='PC1', y='PC2', z='PC3',
+            color='Cluster',
+            text='Bacteria',
+            title="3D Metabolic Space",
+            hover_data=['Cluster']
+        )
+        
+        if search_value:
+            search_lower = search_value.lower()
+            for trace in fig.data:
+                if trace.text is not None:
+                    # trace.text holds the Bacteria label list
+                    mask = np.array([search_lower in str(t).lower() for t in trace.text])
+                    trace.marker.opacity = np.where(mask, 1.0, 0.1)
+                    trace.marker.size = np.where(mask, 6, 3)
+        else:
+            for trace in fig.data:
+                trace.marker.opacity = 1.0
+                trace.marker.size = 5
+                
+        fig.update_layout(margin=dict(l=0, r=0, b=0, t=40), height=800)
+        return fig
+        
     return app
