@@ -243,6 +243,22 @@ def run_bacteria_analysis(file_path: str, sample_list: list = None, scoring: str
     
     return pca_df
 
+def launch_interactive_dashboard(file_path: str, sample_list: list = None, scoring: str = 'gap'):
+    """Launches the Dash-based interactive PCA dashboard."""
+    df = load_metabolism_data(file_path, sample_list=sample_list)
+    pca_df, Z, pca_model = perform_pca_clustering(df, scoring=scoring)
+    
+    try:
+        from result_plot.vis_metabolism_pca import create_metabolism_dashboard
+    except ImportError:
+        import sys, os
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from result_plot.vis_metabolism_pca import create_metabolism_dashboard
+        
+    app = create_metabolism_dashboard(pca_df, pca_model)
+    print("Launching Dash server... (Press Ctrl+C to stop)")
+    app.run_server(debug=True)
+
 # --- Execution ---
 if __name__ == "__main__":
     DATA_PATH = r"H:\Process_temporary\WJH\sensory_pipeline_python\data\bacteria\metabolism\matrix.xlsx"
@@ -251,3 +267,6 @@ if __name__ == "__main__":
     # samples_to_keep = ['Bact_A', 'Bact_B', 'Bact_C'] 
     
     results = run_bacteria_analysis(DATA_PATH, sample_list=None)
+    
+    # To launch the interactive Dash dashboard, uncomment to use:
+    # launch_interactive_dashboard(DATA_PATH, sample_list=None)
