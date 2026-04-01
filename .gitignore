@@ -67,7 +67,6 @@ dmypy.json
 # numpy
 *.npy
 *.npz
-
 # Temporary files
 *.swp
 *~
@@ -77,3 +76,5 @@ dmypy.json
 
 /usage
 /results
+/data
+.worktrees/

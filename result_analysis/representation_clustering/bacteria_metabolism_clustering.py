@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
+from pathlib import Path
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
@@ -57,7 +58,7 @@ def load_metabolism_data(file_path: str, sample_list: list = None):
     Loads and prepares the metabolism Excel file.
     Optionally filters by a list of bacteria names.
     """
-    df = pd.read_excel(file_path)
+    df = pd.read_excel(Path(file_path))
     
     # Set the first column as index (assuming it contains bacteria names)
     if 'Unnamed: 0' in df.columns:
@@ -77,6 +78,42 @@ def load_metabolism_data(file_path: str, sample_list: list = None):
 
     print(f"Data shape: {df.shape[0]} bacteria x {df.shape[1]} compounds.")
     return df
+
+
+def build_reference_clustering(
+    df: pd.DataFrame,
+    n_comp: int = 3,
+    scoring: str = 'gap',
+) -> dict:
+    """
+    Build a structured clustering payload for downstream neural-method benchmarking.
+
+    Args:
+        df: Metabolism matrix indexed by sample name.
+        n_comp: Number of PCA components to retain for the embedding.
+        scoring: Cluster count selection rule. Supports 'gap' and 'silhouette'.
+
+    Returns:
+        Dict containing ordered sample names, labels, selected cluster count,
+        PCA embedding, linkage matrix, and model metadata.
+    """
+    if len(df) < 2:
+        raise ValueError("At least 2 samples are required for clustering analysis.")
+
+    pca_df, Z, pca_model = perform_pca_clustering(df, n_comp=n_comp, scoring=scoring)
+    component_cols = [col for col in pca_df.columns if col.startswith('PC')]
+    embedding = pca_df.set_index('Bacteria')[component_cols]
+    labels = pca_df['Cluster'].tolist()
+
+    return {
+        'samples': pca_df['Bacteria'].tolist(),
+        'labels': labels,
+        'n_clusters': len(set(labels)),
+        'embedding': embedding,
+        'linkage': Z,
+        'pca_model': pca_model,
+        'scoring': scoring,
+    }
 
 def perform_pca_clustering(df: pd.DataFrame, n_comp: int = 3, scoring: str = 'gap'):
     """
@@ -206,6 +243,38 @@ def run_bacteria_analysis(file_path: str, sample_list: list = None, scoring: str
     
     return pca_df
 
+def launch_interactive_dashboard(file_path: str, sample_list: list = None):
+    """Launches the Dash-based interactive PCA dashboard without clustering overhead."""
+    df = load_metabolism_data(file_path, sample_list=sample_list)
+    
+    # 1. Pure PCA Projection up to 20 dimensions
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(df)
+    
+    actual_n_comp = min(20, len(df), df.shape[1])
+    pca_model = PCA(n_components=actual_n_comp)
+    pca_results = pca_model.fit_transform(scaled_data)
+    
+    col_names = [f'PC{i+1}' for i in range(actual_n_comp)]
+    pca_df = pd.DataFrame(data=pca_results, columns=col_names, index=df.index)
+    pca_df.index.name = 'Bacteria'
+    pca_df = pca_df.reset_index()
+    
+    # 2. Launch Dashboard
+    try:
+        from result_plot.vis_metabolism_pca import create_metabolism_dashboard
+    except ImportError:
+        import sys, os
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from result_plot.vis_metabolism_pca import create_metabolism_dashboard
+        
+    app = create_metabolism_dashboard(pca_df, pca_model)
+    print("Launching Dash server... (Press Ctrl+C to stop)")
+    app.run(debug=True)
+
 # --- Execution ---
 if __name__ == "__main__":
     DATA_PATH = r"H:\Process_temporary\WJH\sensory_pipeline_python\data\bacteria\metabolism\matrix.xlsx"
@@ -214,3 +283,6 @@ if __name__ == "__main__":
     # samples_to_keep = ['Bact_A', 'Bact_B', 'Bact_C'] 
     
     results = run_bacteria_analysis(DATA_PATH, sample_list=None)
+    
+    # To launch the interactive Dash dashboard, uncomment to use:
+    # launch_interactive_dashboard(DATA_PATH, sample_list=None)
