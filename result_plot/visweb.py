@@ -223,7 +223,8 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                         id='display-type-selector',
                         options=[
                             {'label': ' Individual Trials', 'value': 'individual'},
-                            {'label': ' Mean ± SEM', 'value': 'mean_sem'}
+                            {'label': ' Mean ± SEM', 'value': 'mean_sem'},
+                            {'label': ' Mean ± SD', 'value': 'mean_sd'}
                         ],
                         value='mean_sem',
                         labelStyle={'display': 'flex', 'alignItems': 'center', 'margin': '10px 0', 'color': '#334155', 'fontWeight': '500'},
@@ -490,13 +491,13 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                                            f"{cluster_info}{neuron} - {get_stimulus_label(group_key, odor_information)}")
                         ), row=row_idx, col=col_idx)
                 else:
-                    # Mean ± SEM
+                    # Mean ± SEM or SD
                     group_cols = ['neuron_display', 'stimulus_group', 'rel_time']
                     if show_date_difference:
                         group_cols.append('date')
                     
                     # Calculate stats
-                    stats_df = cell_df.groupby(group_cols)['delta_F_over_F0'].agg(['mean', 'sem', 'count']).reset_index()
+                    stats_df = cell_df.groupby(group_cols)['delta_F_over_F0'].agg(['mean', 'sem', 'std', 'count']).reset_index()
                     
                     if show_date_difference:
                         for date in all_dates:
@@ -517,9 +518,12 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                                 customdata=date_stats['count']
                             ), row=row_idx, col=col_idx)
                             
+                            error_metric = date_stats['std'] if display_type == 'mean_sd' else date_stats['sem']
+                            error_metric = error_metric.fillna(0)
+                            
                             fig.add_trace(go.Scatter(
                                 x=np.concatenate([date_stats['rel_time'], date_stats['rel_time'][::-1]]),
-                                y=np.concatenate([date_stats['mean'] + date_stats['sem'], (date_stats['mean'] - date_stats['sem'])[::-1]]),
+                                y=np.concatenate([date_stats['mean'] + error_metric, (date_stats['mean'] - error_metric)[::-1]]),
                                 fill='toself',
                                 fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.15,)}',
                                 line=dict(color='rgba(255,255,255,0)'),
@@ -537,9 +541,12 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                             customdata=stats_df['count']
                         ), row=row_idx, col=col_idx)
                         
+                        error_metric = stats_df['std'] if display_type == 'mean_sd' else stats_df['sem']
+                        error_metric = error_metric.fillna(0)
+                        
                         fig.add_trace(go.Scatter(
                             x=np.concatenate([stats_df['rel_time'], stats_df['rel_time'][::-1]]),
-                            y=np.concatenate([stats_df['mean'] + stats_df['sem'], (stats_df['mean'] - stats_df['sem'])[::-1]]),
+                            y=np.concatenate([stats_df['mean'] + error_metric, (stats_df['mean'] - error_metric)[::-1]]),
                             fill='toself',
                             fillcolor=f'rgba{tuple(int(highlight_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4)) + (0.3,)}',
                             line=dict(color='rgba(255,255,255,0)'),
