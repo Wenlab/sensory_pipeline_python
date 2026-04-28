@@ -8,7 +8,7 @@ if __name__ == '__main__':
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from data_load.get_stimulus_info import extract_intervals_from_excel, extract_intervals
 from data_load.curve_fit import calculate_delta_F_over_F0
-from data_load.preprocessing import detect_and_mask_step_drops
+from data_load.preprocessing import denoise_frame_artifacts
 
 #%%
 ## load worm_ID
@@ -57,8 +57,8 @@ def load_worm_data_dict(
     stimulus_intervals, buffer_intervals = extract_intervals(experiment_df, key)
     intensity = pd.DataFrame(f[key]['intensity'][:])# this conversion is useless but Fit function is based on dataframe(which is our old data's form)
     
-    # Detect and mask step artifacts
-    intensity = detect_and_mask_step_drops(intensity)
+    # Repair frame-level spike/reversal artifacts before dF/F without smoothing.
+    intensity = denoise_frame_artifacts(intensity, max_interp_gap=32)
     try:
         raw_n_seq = np.asarray(f[key]['n_seg'][:]).ravel()
         n_seq = []

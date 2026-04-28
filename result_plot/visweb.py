@@ -239,7 +239,8 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
                         options=[
                             {'label': ' Combine L/R Neurons', 'value': 'combine_neurons'},
                             {'label': ' Compare by Date', 'value': 'show_date_difference'},
-                            {'label': ' Cluster Mode', 'value': 'cluster_mode'}
+                            {'label': ' Cluster Mode', 'value': 'cluster_mode'},
+                            {'label': ' Stimulus Window Only (ON → OFF+10)', 'value': 'stim_window_only'}
                         ],
                         value=[],
                         labelStyle={'display': 'flex', 'alignItems': 'center', 'margin': '10px 0', 'color': '#334155', 'fontWeight': '500'},
@@ -350,6 +351,7 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
         
         combine_neurons = 'combine_neurons' in combine_options
         show_date_difference = 'show_date_difference' in combine_options
+        stim_window_only = 'stim_window_only' in combine_options
         
         # 1. Filter and prepare local DataFrame copy
         dff = df_all[df_all['neuron'].isin(selected_neurons) & df_all['stimulus'].isin(selected_stimuli)].copy()
@@ -357,6 +359,11 @@ def create_neuronal_dashboard(neuron_segments_data, odor_information=None, stimu
             return go.Figure(), {'height': '800px', 'width': '100%'}
             
         dff['rel_time'] = dff['time_point'] - dff['start_time']
+        
+        # Crop to stimulus window: ON (0) to OFF + 10
+        if stim_window_only:
+            dff['end_time_rel'] = dff['end_time'] - dff['start_time']
+            dff = dff[(dff['rel_time'] >= 0) & (dff['rel_time'] <= dff['end_time_rel'] + 10)].copy()
         
         # 2. Handle neuron combination (L/R)
         if combine_neurons:

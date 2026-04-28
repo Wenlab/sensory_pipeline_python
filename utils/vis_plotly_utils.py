@@ -176,7 +176,8 @@ def draw_waterfall_plot(x, y_dict, y_offset, id_list=None, fill_area=True, fig=N
     for i, neuron_id in enumerate(id_list):
         y = y_dict[int(neuron_id)]
         # y_with_offset = y - min(y) + y_offset * (len(id_list) - i)
-        y_with_offset = y - min(y) + y_offset * i
+        y_min = np.nanmin(y) if not np.all(np.isnan(y)) else 0
+        y_with_offset = y - y_min + y_offset * i
         # ymax = max(ymax, y_with_offset.max())
         # 创建辅助轨迹 - 目标水平线
         if fill_area:

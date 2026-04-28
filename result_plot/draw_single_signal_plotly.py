@@ -8,9 +8,27 @@ import numpy as np
 from result_analysis.single_trial_analyse import cluster_by_corr_then_sort_by_delay, _load_single_trial_intensity, _resolve_stimulus_metadata, _prepare_delta_f
 from utils.interpolate import interpolate_over_nans
 from utils.vis_plotly_utils import add_regions_to_fig, draw_waterfall_plot
-from data_load.preprocessing import detect_and_mask_step_drops
+from data_load.preprocessing import denoise_frame_artifacts
 
-def prepare_signal_dict(h5_file_path, root_name, labjack_excel_path=None, raw_data=False):
+def _preprocess_intensity(intensity, mode="aggressive", **kwargs):
+    if mode is None or mode == "none":
+        return intensity
+    if mode == "conservative":
+        return denoise_frame_artifacts(intensity, max_interp_gap=4, **kwargs)
+    if mode == "aggressive":
+        return denoise_frame_artifacts(intensity, max_interp_gap=32, **kwargs)
+    raise ValueError("preprocessing_mode must be 'none', 'conservative', or 'aggressive'")
+
+
+def prepare_signal_dict(
+    h5_file_path,
+    root_name,
+    labjack_excel_path=None,
+    raw_data=False,
+    preprocessing_mode="aggressive",
+    preprocess_raw=False,
+    **preprocessing_kwargs,
+):
     intensity, _, n_seq, _ = _load_single_trial_intensity(h5_file_path, root_name)
     if labjack_excel_path is not None:
         stimulus_intervals, stimulus_list = _resolve_stimulus_metadata(labjack_excel_path, root_name)
@@ -18,10 +36,20 @@ def prepare_signal_dict(h5_file_path, root_name, labjack_excel_path=None, raw_da
         stimulus_intervals, stimulus_list = [], []
 
     if raw_data:
+        if preprocess_raw:
+            intensity = _preprocess_intensity(
+                intensity,
+                mode=preprocessing_mode,
+                **preprocessing_kwargs,
+            )
         delta_f = intensity - np.nanmean(intensity, axis=1, keepdims=True)
         delta_f_interp, t_inter = interpolate_over_nans(delta_f)
     else:
-        intensity = detect_and_mask_step_drops(intensity)
+        intensity = _preprocess_intensity(
+            intensity,
+            mode=preprocessing_mode,
+            **preprocessing_kwargs,
+        )
         delta_f, fitted, quality = _prepare_delta_f(intensity, stimulus_intervals, n_seq, baseline_pre=6, baseline_post=1, vps_setting=1, background_noise=102)
         delta_f_interp, t_inter = interpolate_over_nans(delta_f)
 
@@ -45,8 +73,27 @@ def map_id(id_excel_path, root_name):
             id_name_dict[digital_id] = biological_name
     return id_name_dict
 
-def prepare_single_signal_plotly(h5_file_path, root_name, labjack_excel_path=None, id_excel_path=None, color_scheme=None, stim_name=None, raw_data=False):
-    signal_dict, stimulus_intervals, stimulus_list = prepare_signal_dict(h5_file_path, root_name, labjack_excel_path, raw_data=raw_data)
+def prepare_single_signal_plotly(
+    h5_file_path,
+    root_name,
+    labjack_excel_path=None,
+    id_excel_path=None,
+    color_scheme=None,
+    stim_name=None,
+    raw_data=False,
+    preprocessing_mode="aggressive",
+    preprocess_raw=False,
+    **preprocessing_kwargs,
+):
+    signal_dict, stimulus_intervals, stimulus_list = prepare_signal_dict(
+        h5_file_path,
+        root_name,
+        labjack_excel_path,
+        raw_data=raw_data,
+        preprocessing_mode=preprocessing_mode,
+        preprocess_raw=preprocess_raw,
+        **preprocessing_kwargs,
+    )
     if id_excel_path is None:
         id_name_dict = {id:id for id in signal_dict.keys()}
     else:
@@ -59,8 +106,33 @@ def prepare_single_signal_plotly(h5_file_path, root_name, labjack_excel_path=Non
 
     return signal_dict, stimulus_intervals, stimulus_name_list, color_list, id_name_dict
 
-def create_plotly_fig(h5_file_path, root_name, labjack_excel_path=None, id_excel_path=None, cluster=False, color_scheme=None, stim_name=None, raw_data=False, **kwargs):
-    signal_dict, stimulus_intervals, stimulus_name_list, color_list, id_name_dict = prepare_single_signal_plotly(h5_file_path, root_name, labjack_excel_path, id_excel_path, color_scheme, stim_name, raw_data=raw_data)
+def create_plotly_fig(
+    h5_file_path,
+    root_name,
+    labjack_excel_path=None,
+    id_excel_path=None,
+    cluster=False,
+    color_scheme=None,
+    stim_name=None,
+    raw_data=False,
+    preprocessing_mode="aggressive",
+    preprocess_raw=False,
+    preprocessing_kwargs=None,
+    **kwargs,
+):
+    preprocessing_kwargs = preprocessing_kwargs or {}
+    signal_dict, stimulus_intervals, stimulus_name_list, color_list, id_name_dict = prepare_single_signal_plotly(
+        h5_file_path,
+        root_name,
+        labjack_excel_path,
+        id_excel_path,
+        color_scheme,
+        stim_name,
+        raw_data=raw_data,
+        preprocessing_mode=preprocessing_mode,
+        preprocess_raw=preprocess_raw,
+        **preprocessing_kwargs,
+    )
     if cluster:
         sorted_ids, sorted_corr_matrix, sorted_delay_matrix, fig_corr, fig_delay = cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=5,ref_method='center')
     else:
@@ -93,9 +165,9 @@ if __name__ == "__main__":
     labjack_excel_path = r"H:\Process_temporary\WJH\olfactory\labjack_result\20251105_bac\output_volumes_merged.xlsx"
     ID_path = r"H:\Process_temporary\WJH\olfactory\ID\result\20251105\20251105_1.xlsx"
     import json
-    with open("H:\Process_temporary\WJH\sensory_pipeline_python\data/config/bacteria_color_scheme.json", "r") as f:
+    with open(r"H:\Process_temporary\WJH\sensory_pipeline_python\data/config/bacteria_color_scheme.json", "r") as f:
         color_scheme = json.load(f)
-    with open("H:\Process_temporary\WJH\sensory_pipeline_python\data/config/bacteria.json", "r") as f:
+    with open(r"H:\Process_temporary\WJH\sensory_pipeline_python\data/config/bacteria.json", "r") as f:
         stim_name = json.load(f)
     from result_plot.draw_single_signal_plotly import create_plotly_fig
     fig_args = {
