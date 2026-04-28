@@ -78,3 +78,5 @@ dmypy.json
 /results
 /data
 .worktrees/
+.agents/
+scripts/
