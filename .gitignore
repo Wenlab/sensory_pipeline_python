@@ -67,10 +67,14 @@ dmypy.json
 # numpy
 *.npy
 *.npz
+
 # Temporary files
 *.swp
 *~
-.DS_Store# pixi environments
+.DS_Store
+/tmp
+
+# pixi environments
 .pixi/*
 !.pixi/config.toml
 
@@ -79,4 +83,3 @@ dmypy.json
 /data
 .worktrees/
 .agents/
-scripts/
