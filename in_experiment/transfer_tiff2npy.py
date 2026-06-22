@@ -124,7 +124,8 @@ def _process_ref_volumes(
     date_info,
     camera_type,
     volume_read_params,
-    show_progress
+    show_progress,
+    axis_order="yxz",
 ):
     """
     Process reference volumes - one volume per folder.
@@ -179,6 +180,7 @@ def _process_ref_volumes(
             show_progress=False,
             filename_pattern="ImgStk001_dk001_{worm}_Dt{date}_{seq:06d}.npy",
             sequence_start=sequence_counter,
+            axis_order=axis_order,
         )
         saved_count = len(saved_files)
         sequence_counter += saved_count
@@ -203,7 +205,8 @@ def _process_ex_volumes(
     date_info,
     camera_type,
     volume_read_params,
-    show_progress
+    show_progress,
+    axis_order="yxz",
 ):
     """
     Process experiment volumes - all volumes from each folder.
@@ -255,6 +258,7 @@ def _process_ex_volumes(
             filename_pattern="{subfolder_name}_{seq:06d}.npy",
             sequence_start=0,
             extra_format_kwargs={"subfolder_name": subfolder_name, "folder_idx": idx},
+            axis_order=axis_order,
         )
         saved_count = len(saved_files)
         total_saved += saved_count
@@ -278,6 +282,7 @@ def transfer_tiff2npy(
     camera_type="red",
     show_progress=True,
     worm_exclude_list=None,
+    axis_order="yxz",
     **kwargs
 ):
     """
@@ -314,6 +319,9 @@ def transfer_tiff2npy(
         Whether to display progress bars
     worm_exclude_list : list or None, default=None
         List of worm names to exclude from processing
+    axis_order : str, default="yxz"
+        Output axis order for saved .npy volumes. "yxz" → (y, x, z),
+        "zyx" → (z, y, x) (raw TIFF stack order).
     Example:
     --------
     >>> transfer_tiff2npy(
@@ -377,7 +385,8 @@ def transfer_tiff2npy(
                     date_info=date_info,
                     camera_type=camera_type,
                     volume_read_params=volume_read_params,
-                    show_progress=show_progress
+                    show_progress=show_progress,
+                    axis_order=axis_order,
                 )
         else:
             print("  Skipping reference volume processing (no ref_output_folder provided).")
@@ -392,7 +401,8 @@ def transfer_tiff2npy(
                     date_info=date_info,
                     camera_type=camera_type,
                     volume_read_params=volume_read_params,
-                    show_progress=show_progress
+                    show_progress=show_progress,
+                    axis_order=axis_order,
                 )
         else:
             print("  Skipping experiment volume processing (no ex_output_folder provided).")

@@ -214,7 +214,8 @@ def save_volumes_with_vol_range(
     date_info,
     start_volume_number=0,
     end_volume_number=None,
-    show_progress=True
+    show_progress=True,
+    axis_order="yxz",
 ):
     """
     Save volumes in specified range with custom naming convention.
@@ -284,8 +285,13 @@ def save_volumes_with_vol_range(
         # Compute the volume (load into memory)
         volume_data = single_volume.compute()
         
-        # Transpose from (z, y, x) to (y, x, z)
-        volume_transposed = volume_data.transpose(1, 2, 0)
+        # Apply axis order: raw dask output is (z, y, x)
+        if axis_order == "zyx":
+            volume_transposed = volume_data  # (z, y, x)
+        elif axis_order == "yxz":
+            volume_transposed = volume_data.transpose(1, 2, 0)  # (y, x, z)
+        else:
+            raise ValueError(f"Unsupported axis_order '{axis_order}', expected 'yxz' or 'zyx'")
         
         # Create filename following the specified convention
         filename = f"ImgStk001_dk001_{worm_name}_Dt{date_info}_{vol_num:06d}.npy"
@@ -366,6 +372,7 @@ def save_volumes_with_tiff_range(
     filename_pattern=None,
     sequence_start=0,
     extra_format_kwargs=None,
+    axis_order="yxz",
 ):
     """
     Save volumes in specified tiff file range with custom naming convention.
@@ -396,6 +403,9 @@ def save_volumes_with_tiff_range(
         Starting index for the sequential 'seq' placeholder when multiple volumes are saved.
     extra_format_kwargs : dict, optional
         Additional key/value pairs made available to filename_pattern formatting.
+    axis_order : str, default="yxz"
+        Output axis order. "yxz" transposes from (z,y,x) → (y,x,z).
+        "zyx" keeps the raw (z,y,x) order.
 
     Returns
     -------
@@ -480,8 +490,13 @@ def save_volumes_with_tiff_range(
         # Compute the volume (load into memory)
         volume_data = single_volume.compute()
         
-        # Transpose from (z, y, x) to (y, x, z)
-        volume_transposed = volume_data.transpose(1, 2, 0)
+        # Apply axis order: raw dask output is (z, y, x)
+        if axis_order == "zyx":
+            volume_transposed = volume_data  # (z, y, x)
+        elif axis_order == "yxz":
+            volume_transposed = volume_data.transpose(1, 2, 0)  # (y, x, z)
+        else:
+            raise ValueError(f"Unsupported axis_order '{axis_order}', expected 'yxz' or 'zyx'")
         
         # Prepare formatting context for filename
         seq_index = sequence_start + offset
