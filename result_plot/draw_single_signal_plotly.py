@@ -112,6 +112,7 @@ def create_plotly_fig(
     labjack_excel_path=None,
     id_excel_path=None,
     cluster=False,
+    neuron_ids=None,
     color_scheme=None,
     stim_name=None,
     raw_data=False,
@@ -133,6 +134,8 @@ def create_plotly_fig(
         preprocess_raw=preprocess_raw,
         **preprocessing_kwargs,
     )
+    if neuron_ids is not None:
+        signal_dict = {k: v for k, v in signal_dict.items() if k in neuron_ids}
     if cluster:
         sorted_ids, sorted_corr_matrix, sorted_delay_matrix, fig_corr, fig_delay = cluster_by_corr_then_sort_by_delay(signal_dict, max_lag=5,ref_method='center')
     else:
@@ -141,7 +144,7 @@ def create_plotly_fig(
     region_alpha = kwargs.pop('region_alpha', 0.3)
     show_region_legend = kwargs.pop('show_region_legend', True)
     fig_signal = draw_waterfall_plot(
-        x= np.arange(signal_dict[0].shape[0]),
+        x= np.arange(signal_dict[sorted_ids[0]].shape[0]),
         y_dict=signal_dict,
         y_offset= kwargs.pop('y_offset', 1.5),
         id_list=sorted_ids,
