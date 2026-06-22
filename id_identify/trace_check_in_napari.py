@@ -62,6 +62,49 @@ def _lazy_read_image_npy(image_npy_path):
     dask_volumes = da.stack(lazy_volumes, axis=0)
     return dask_volumes
 
+def _add_neuron_labels(
+    viewer,
+    neuron_boxes_path,
+    neuron_pt_tuple_path,
+    z_dim,
+    label_scale,
+    label_translate=None,
+    volume_slice=None,
+    use_visual_stack=True,
+):
+    if neuron_boxes_path is not None:
+        neuron_boxes = _lazy_read_neuro_boxes(neuron_boxes_path)
+        if volume_slice is not None:
+            neuron_boxes = neuron_boxes[volume_slice]
+            if not use_visual_stack:
+                neuron_boxes = neuron_boxes.compute()
+        viewer.add_labels(
+            neuron_boxes,
+            name="neuron_boxes",
+            blending='additive',
+            scale=label_scale,
+            opacity=1.0,
+            **(dict(translate=label_translate) if label_translate is not None else {}),
+        )
+    elif neuron_pt_tuple_path is not None:
+        neuron_pt_tuple = np.load(neuron_pt_tuple_path)
+        output_shape = (neuron_pt_tuple.shape[0], z_dim, 1024, 1024)
+        neuron_boxes = draw_neuron_box(neuron_pt_tuple, output_shape=output_shape, save_dir=None)
+        if volume_slice is not None:
+            neuron_boxes = neuron_boxes[volume_slice]
+            if not use_visual_stack:
+                neuron_boxes = neuron_boxes.compute()
+        viewer.add_labels(
+            neuron_boxes,
+            name="neuron_boxes",
+            blending='additive',
+            scale=label_scale,
+            opacity=1.0,
+            **(dict(translate=label_translate) if label_translate is not None else {}),
+        )
+    else:
+        print("No neuron boxes or neuron point tuple provided. Skipping label addition.")
+
 def trace_check_in_napari_tiff(
     red_tiff_path,
     green_tiff_path,
@@ -111,30 +154,14 @@ def trace_check_in_napari_tiff(
         green_translate=green_translate,
     )
 
-    if neuron_boxes_path is not None:
-        neuron_boxes = _lazy_read_neuro_boxes(neuron_boxes_path)
-        viewer.add_labels(
-            neuron_boxes,
-            name="neuron_boxes",
-            blending='additive',
-            scale=label_scale,
-            translate=label_translate,
-            opacity=1.0,
-        )
-    elif neuron_pt_tuple_path is not None:
-        neuron_pt_tuple = np.load(neuron_pt_tuple_path)
-        output_shape = (neuron_pt_tuple.shape[0], volume_read_params['z_end_frame_number'] - volume_read_params['z_start_frame_number'] + 1, 1024, 1024)
-        neuron_boxes = draw_neuron_box(neuron_pt_tuple, output_shape=output_shape, save_dir=None)
-        viewer.add_labels(
-            neuron_boxes,
-            name="neuron_boxes",
-            blending='additive',
-            scale=label_scale,
-            translate=label_translate,
-            opacity=1.0,
-        )
-    else:
-        print("No neuron boxes or neuron point tuple provided. Skipping label addition.")
+    _add_neuron_labels(
+        viewer,
+        neuron_boxes_path=neuron_boxes_path,
+        neuron_pt_tuple_path=neuron_pt_tuple_path,
+        z_dim=volume_read_params['z_end_frame_number'] - volume_read_params['z_start_frame_number'] + 1,
+        label_scale=label_scale,
+        label_translate=label_translate,
+    )
 
     return viewer
 
@@ -149,9 +176,11 @@ def trace_check_in_napari_npy(
 
     image_contrast_limit=(150, 400),
     image_scale=(1, 5, 1, 1),
+    image_translate=(0, 0, 0, 0),
     neuron_pt_tuple_path=None,
     neuron_boxes_path=None,
     label_scale=(1, 5, 1, 1),
+    label_translate=(0, 0, 0, 0),
 ):
     '''
     Args:
@@ -175,6 +204,7 @@ def trace_check_in_napari_npy(
             name='image_channel',
             scale=image_scale,
             blending='additive',
+            translate=image_translate,
         )
     else:
         volume = volume_dask[
@@ -185,32 +215,19 @@ def trace_check_in_napari_npy(
             name='image_channel',
             scale=image_scale,
             blending='additive',
+            translate=image_translate,
         )
 
-    if neuron_boxes_path is not None:
-        neuron_boxes = _lazy_read_neuro_boxes(neuron_boxes_path)
-        viewer.add_labels(
-            neuron_boxes[volume_read_start:volume_read_end:volume_read_interval].compute() if not use_visual_stack else neuron_boxes[
-                volume_read_start:volume_read_end:volume_read_interval],
-            name="neuron_boxes",
-            blending='additive',
-            scale=label_scale,
-            opacity=1.0,
-        )
-    elif neuron_pt_tuple_path is not None:
-        neuron_pt_tuple = np.load(neuron_pt_tuple_path)
-        output_shape = (neuron_pt_tuple.shape[0], volume_dask.shape[1], 1024, 1024)       
-        neuron_boxes = draw_neuron_box(neuron_pt_tuple, output_shape=output_shape, save_dir=None)
-        viewer.add_labels(
-            neuron_boxes[volume_read_start:volume_read_end:volume_read_interval].compute() if not use_visual_stack else neuron_boxes[
-                volume_read_start:volume_read_end:volume_read_interval],
-            name="neuron_boxes",
-            blending='additive',
-            scale=label_scale,
-            opacity=1.0,
-        )
-    else:
-        print("No neuron boxes or neuron point tuple provided. Skipping label addition.")
+    _add_neuron_labels(
+        viewer,
+        neuron_boxes_path=neuron_boxes_path,
+        neuron_pt_tuple_path=neuron_pt_tuple_path,
+        z_dim=volume_dask.shape[1],
+        label_scale=label_scale,
+        volume_slice=slice(volume_read_start, volume_read_end, volume_read_interval),
+        use_visual_stack=use_visual_stack,
+        label_translate=label_translate,
+    )
 
     return viewer
 

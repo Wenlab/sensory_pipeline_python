@@ -18,18 +18,18 @@ def image_process(image_np, background_value = 110):
     image_np[image_np < background_value] = 0  # Set background pixels to 0
     return image_np
 
-def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , **kwargs):
+def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path=None , **kwargs):
     """
     Args:
         green_file_path (_type_): green channel volume npy
         red_file_path (_type_): red channel volume npy
-        neuron_pt_tuple_path (_type_, optional): neuron pt tuple npy
-        aligned_volume_path (_type_, optional): aligned MIP volume 
+        neuron_pt_tuple_path (_type_, optional): neuron pt tuple npy. If None, an empty mask is returned.
+        aligned_volume_path (_type_, optional): aligned MIP volume
         aligned_neuron_pt_tuple (_type_, optional): neuron pt tuple for aligned MIP volume
         ref_green_folder_path (_type_, optional): reference green channel folder path
         ref_red_folder_path (_type_, optional): reference red channel folder path
     Returns:
-        processed green array and red array 
+        processed green array, red array, and mask array
     """
     aligned_volume_path = kwargs.get("aligned_volume_path", None)
     aligned_neuron_pt_tuple = kwargs.get("aligned_neuron_pt_tuple", None)
@@ -38,14 +38,18 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
     ref_neuron_pt_tuple_path = kwargs.get("ref_neuron_pt_tuple", None)
     ex_green = np.load(green_file_path)
     ex_red = np.load(red_file_path)
-    neuron_pt_tuple = np.load(neuron_pt_tuple_path)
+    if neuron_pt_tuple_path is not None:
+        neuron_pt_tuple = np.load(neuron_pt_tuple_path)
+    else:
+        neuron_pt_tuple = None
     if ref_green_folder_path is not None:
         ref_green = _lazy_read_image_npy(ref_green_folder_path)
         ref_green = ref_green[0].compute()
         ex_green[0] = ref_green.transpose(2,0,1) if kwargs.get("need_transpose", False) else ref_green
         if ref_neuron_pt_tuple_path is not None:
             ref_neuron_pt_tuple = np.load(ref_neuron_pt_tuple_path)
-            neuron_pt_tuple[0] = ref_neuron_pt_tuple[0]
+            if neuron_pt_tuple is not None:
+                neuron_pt_tuple[0] = ref_neuron_pt_tuple[0]
     if ref_red_folder_path is not None:
         ref_red = _lazy_read_image_npy(ref_red_folder_path)
         ref_red = ref_red[0].compute()
@@ -54,12 +58,16 @@ def image_and_box_load(green_file_path, red_file_path,  neuron_pt_tuple_path , *
         align_volume = np.load(aligned_volume_path)
         ex_green[1] = align_volume.transpose(2,0,1)
         if aligned_neuron_pt_tuple is not None:
-            neuron_pt_tuple[1] = np.load(aligned_neuron_pt_tuple)
+            if neuron_pt_tuple is not None:
+                neuron_pt_tuple[1] = np.load(aligned_neuron_pt_tuple)
     ex_green = image_process(ex_green)
     ex_red = image_process(ex_red)
     output_shape = kwargs.get("output_shape", ex_green.shape)
-    mask = draw_neuron_box(neuron_pt_tuple[:2],output_shape=output_shape, save_dir=None)
-    mask = mask.compute()
+    if neuron_pt_tuple is not None:
+        mask = draw_neuron_box(neuron_pt_tuple[:2], output_shape=output_shape, save_dir=None)
+        mask = mask.compute()
+    else:
+        mask = np.zeros(output_shape, dtype=np.int32)
     return ex_green, ex_red, mask
 
 def view_in_napari(green, red, mask, mask_name = "mask",green_scale=[1,5,1,-1], red_scale = [1,5,1,1], red_translate = [0,0,0,0], green_translate = [0,0,0,1024], mask_scale=[1,5,1,-1], mask_translate=[0,0,0,1024], red_contrast_limits=[120,250], green_contrast_limits=[120,250]):
