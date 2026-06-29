@@ -181,19 +181,28 @@ def trace_check_in_napari_npy(
     neuron_boxes_path=None,
     label_scale=(1, 5, 1, 1),
     label_translate=(0, 0, 0, 0),
+
+    axis_order="yxz",
 ):
     '''
     Args:
-        red_npy_path: path to red channel npy file
-        green_npy_path: path to green channel npy file
+        image_npy_path: path to image npy directory
         use_visual_stack: bool, whether to use dask to lazy load volumes
         visual_volume_count: visual volume number if use_visual_stack is True
         volume_read_start: starting volume index to read
         volume_read_interval: interval between volumes to read
         volume_read_end: ending volume index to read, None for all volumes
+        axis_order: str, "yxz" (default) or "zyx".
+            - "yxz": each npy is (y, x, z) → stack is (t, y, x, z) → transpose to (t, z, y, x)
+            - "zyx": each npy is (z, y, x) → stack is (t, z, y, x) → no transpose needed
     '''
     volume_dask = _lazy_read_image_npy(image_npy_path)
-    volume_dask = volume_dask.transpose(0,3,1,2) # t,y,x,z to t,z,y,x
+    if axis_order == "yxz":
+        volume_dask = volume_dask.transpose(0, 3, 1, 2)  # (t, y, x, z) → (t, z, y, x)
+    elif axis_order == "zyx":
+        pass  # (t, z, y, x) already in napari format, no transpose needed
+    else:
+        raise ValueError(f"Unsupported axis_order '{axis_order}', expected 'yxz' or 'zyx'")
     viewer = napari.Viewer()
     if use_visual_stack:
         viewer.add_image(
